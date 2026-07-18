@@ -24,11 +24,6 @@ constexpr UINT kTrayIconId = 1;
 constexpr ULONGLONG kMaximumLeaseMilliseconds = 24ULL * 60ULL * 60ULL * 1000ULL;
 
 constexpr UINT kMenuOpen = 100;
-constexpr UINT kMenuTimer30 = 101;
-constexpr UINT kMenuTimer60 = 102;
-constexpr UINT kMenuTimer120 = 103;
-constexpr UINT kMenuUntilReleased = 104;
-constexpr UINT kMenuReleaseManual = 105;
 constexpr UINT kMenuToggleDisplay = 106;
 constexpr UINT kMenuToggleStartup = 107;
 constexpr UINT kMenuSetupHooks = 108;
@@ -92,16 +87,6 @@ std::wstring DetectorId(Provider provider) {
 
 UiAction MenuToAction(UINT command) {
     switch (command) {
-        case kMenuTimer30:
-            return UiAction::Timer30Minutes;
-        case kMenuTimer60:
-            return UiAction::Timer1Hour;
-        case kMenuTimer120:
-            return UiAction::Timer2Hours;
-        case kMenuUntilReleased:
-            return UiAction::ManualUntilReleased;
-        case kMenuReleaseManual:
-            return UiAction::ReleaseManual;
         case kMenuToggleDisplay:
             return UiAction::ToggleDisplay;
         case kMenuToggleStartup:
@@ -346,44 +331,7 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
 }
 
 void AgentLatchApp::ExecuteAction(UiAction action) {
-    const ULONGLONG now = GetTickCount64();
-    const auto add_timer = [&](ULONGLONG duration, const wchar_t* label) {
-        latches_.Remove(L"manual:until-released");
-        latches_.Upsert(
-            L"manual:timer",
-            Provider::Manual,
-            LatchKind::Timer,
-            label,
-            L"Manual quick latch",
-            now,
-            duration);
-    };
-
     switch (action) {
-        case UiAction::Timer30Minutes:
-            add_timer(30ULL * 60ULL * 1000ULL, L"30 minute timer");
-            break;
-        case UiAction::Timer1Hour:
-            add_timer(60ULL * 60ULL * 1000ULL, L"1 hour timer");
-            break;
-        case UiAction::Timer2Hours:
-            add_timer(2ULL * 60ULL * 60ULL * 1000ULL, L"2 hour timer");
-            break;
-        case UiAction::ManualUntilReleased:
-            latches_.Remove(L"manual:timer");
-            latches_.Upsert(
-                L"manual:until-released",
-                Provider::Manual,
-                LatchKind::Manual,
-                L"Manual latch",
-                L"Held until you release it",
-                now,
-                0);
-            break;
-        case UiAction::ReleaseManual:
-            latches_.RemoveByKind(LatchKind::Manual);
-            latches_.RemoveByKind(LatchKind::Timer);
-            break;
         case UiAction::ToggleCodex:
             settings_.CycleProviderMode(Provider::Codex);
             latches_.RemoveByProvider(Provider::Codex);
@@ -436,16 +384,6 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
                               ? L"Latched · " + std::to_wstring(latches_.Size()) + L" active"
                               : L"Windows can sleep";
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, status.c_str());
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kMenuTimer30, L"Keep awake for 30 minutes");
-    AppendMenuW(menu, MF_STRING, kMenuTimer60, L"Keep awake for 1 hour");
-    AppendMenuW(menu, MF_STRING, kMenuTimer120, L"Keep awake for 2 hours");
-    AppendMenuW(menu, MF_STRING, kMenuUntilReleased, L"Keep awake until released");
-    AppendMenuW(
-        menu,
-        MF_STRING | (latches_.HasKind(LatchKind::Manual) || latches_.HasKind(LatchKind::Timer) ? MF_ENABLED : MF_GRAYED),
-        kMenuReleaseManual,
-        L"Release manual latch");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (settings_.keep_display_on ? MF_CHECKED : MF_UNCHECKED), kMenuToggleDisplay, L"Keep display on while latched");
     AppendMenuW(menu, MF_STRING | (IsStartWithWindowsEnabled() ? MF_CHECKED : MF_UNCHECKED), kMenuToggleStartup, L"Start with Windows");

@@ -12,7 +12,7 @@ Desktop Electron processes perform background work even when no agent is running
 
 The normal AgentLatch setup executable configures every supported integration automatically. No separate hook installation step is required.
 
-To repair or update an installed integration, select **Integrations** in AgentLatch or run:
+To repair or update an installed integration, right-click the AgentLatch tray icon and select **Repair or update agent integrations**, or run:
 
 ```powershell
 .\scripts\install-integrations.ps1 -AgentLatchPath "C:\path\to\AgentLatch.exe"

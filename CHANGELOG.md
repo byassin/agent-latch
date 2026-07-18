@@ -4,7 +4,7 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
-## [0.2.0-preview.6] - 2026-07-18
+## [0.2.0] - 2026-07-18
 
 ### Added
 
@@ -17,7 +17,8 @@ All notable changes to AgentLatch will be documented here.
 - Upgrades now stop the previous AgentLatch instance before replacing and relaunching the installed executable.
 - A visible version badge now appears in the dashboard header, window title, About dialog, and executable metadata.
 - Releases now ship as proper Windows setup executables with upgrade, Start menu, startup, integration, and uninstall support instead of ZIP archives.
-- The dashboard is now a compact status utility with a single wake state, quick timers, running work, and a concise agent-tracking list.
+- The dashboard is now a compact, agent-focused status utility with running work and a concise agent-tracking list.
+- The shipped AgentLatch artwork is now used in the native dashboard as well as the executable, installer, and repository.
 
 ### Fixed
 
@@ -26,6 +27,13 @@ All notable changes to AgentLatch will be documented here.
 - Legacy on/off provider preferences migrate safely to the new three-state modes.
 - Integration repair removes stale AgentLatch commands from older preview paths while preserving unrelated hooks.
 - Setup integration tests use isolated AppIds so they cannot overwrite a real AgentLatch installation's uninstall registration.
+- High-DPI layouts no longer clip the product name, version, idle status, or header controls.
+
+### Changed
+
+- Removed generic interval and indefinite wake controls from the dashboard and tray so AgentLatch stays focused on active agent work.
+- Moved integration repair out of the main dashboard and into the tray's advanced recovery menu.
+- Replaced the compressed repository screenshot with a lossless high-resolution capture.
 
 ## [0.1.0] - 2026-07-17
 
@@ -42,6 +50,6 @@ All notable changes to AgentLatch will be documented here.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.0-preview.6...HEAD
-[0.2.0-preview.6]: https://github.com/byassin/agent-latch/compare/v0.1.0...v0.2.0-preview.6
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/byassin/agent-latch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/byassin/agent-latch/releases/tag/v0.1.0

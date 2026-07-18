@@ -9,18 +9,17 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep only while useful work is still running. It understands concurrent AI coding agents, exposes every active reason, and releases Windows the moment the final latch ends.
 
 <p align="center">
-  <img src="assets/dashboard.jpg" width="476" alt="AgentLatch dashboard showing an active Codex task">
+  <img src="assets/dashboard.png" width="500" alt="AgentLatch dashboard showing an active Codex task">
 </p>
 
 ## Why AgentLatch
 
 - **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Google Antigravity/Gemini CLI.
-- **Concurrency-safe:** four subagents and one manual timer become five independent latches; sleep resumes only after all five release.
+- **Concurrency-safe:** every conversation, session, and subagent gets an independent latch; sleep resumes only after all active work releases.
 - **Your choice of precision:** set every provider independently to **Tasks**, **Open**, or **Off**.
 - **Task-first by default:** Codex desktop lifecycle records and provider hooks track actual work; conservative CLI activity detection is the fallback.
 - **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
 - **Transparent:** the dashboard shows exactly what is keeping the machine awake and why.
-- **Still a great wake utility:** 30-minute, one-hour, two-hour, and until-released controls are always one click away.
 - **Native and private:** one Win32 executable, no account, no service, no telemetry, and no administrator rights.
 
 AgentLatch uses a Windows power request. It does not jiggle the mouse, synthesize keystrokes, change the system power plan, or prevent a user-initiated shutdown or sleep.
@@ -43,13 +42,13 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 2. Double-click the setup executable.
 3. Choose whether AgentLatch should start with Windows, then select **Install**.
 
-Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. The exact build number is always visible beside the AgentLatch name in the dashboard and in the window title.
+Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. The exact stable version is always visible beside the AgentLatch name in the dashboard and in the window title.
 
 Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. The Windows uninstaller removes only AgentLatch's own integration entries.
 
 Codex desktop task detection is native and automatic: AgentLatch reads the local start/complete lifecycle stream that Codex already maintains. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
 
-Early preview installers may display a Windows SmartScreen warning until project releases are Authenticode-signed.
+Windows may display a SmartScreen warning until project releases are Authenticode-signed.
 
 ## Command-line lease API
 

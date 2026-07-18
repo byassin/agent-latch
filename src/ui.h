@@ -11,11 +11,6 @@ namespace agent_latch {
 
 enum class UiAction {
     None,
-    Timer30Minutes,
-    Timer1Hour,
-    Timer2Hours,
-    ManualUntilReleased,
-    ReleaseManual,
     ToggleCodex,
     ToggleClaude,
     ToggleCursor,
@@ -66,6 +61,7 @@ private:
     HFONT body_semibold_font_{nullptr};
     HFONT small_font_{nullptr};
     HFONT tiny_semibold_font_{nullptr};
+    HICON brand_icon_{nullptr};
     std::vector<HitTarget> hit_targets_;
 };
 

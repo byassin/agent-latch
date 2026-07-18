@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include "resource.h"
 #include "version.h"
 #include "win_util.h"
 
@@ -21,7 +22,6 @@ constexpr COLORREF kActive = RGB(52, 211, 153);
 constexpr COLORREF kActiveDark = RGB(18, 52, 44);
 constexpr COLORREF kIdle = RGB(112, 122, 136);
 constexpr COLORREF kBlue = RGB(104, 169, 255);
-constexpr COLORREF kBlueDark = RGB(27, 48, 75);
 constexpr COLORREF kWarning = RGB(251, 191, 36);
 
 HFONT CreateUiFont(UINT dpi, int points, int weight) {
@@ -84,42 +84,6 @@ void DrawStatusDot(HDC dc, int center_x, int center_y, int radius, COLORREF colo
     SelectObject(dc, old_brush);
     DeleteObject(pen);
     DeleteObject(brush);
-}
-
-void DrawLatchMark(HDC dc, const RECT& bounds, COLORREF color, COLORREF background) {
-    const int width = bounds.right - bounds.left;
-    const int stroke = std::max(2, width / 11);
-    HPEN pen = CreatePen(PS_SOLID, stroke, color);
-    HBRUSH fill = CreateSolidBrush(color);
-    HGDIOBJ old_pen = SelectObject(dc, pen);
-    HGDIOBJ old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-
-    const int shackle_left = bounds.left + width * 3 / 10;
-    const int shackle_right = bounds.right - width * 3 / 10;
-    const int shackle_top = bounds.top + width / 7;
-    const int shackle_bottom = bounds.top + width * 3 / 5;
-    Arc(dc, shackle_left, shackle_top, shackle_right, shackle_bottom, shackle_right, shackle_bottom, shackle_left, shackle_bottom);
-    MoveToEx(dc, shackle_left, (shackle_top + shackle_bottom) / 2, nullptr);
-    LineTo(dc, shackle_left, shackle_bottom);
-    MoveToEx(dc, shackle_right, (shackle_top + shackle_bottom) / 2, nullptr);
-    LineTo(dc, shackle_right, shackle_bottom);
-
-    SelectObject(dc, fill);
-    RECT body{bounds.left + width / 5, bounds.top + width / 2, bounds.right - width / 5, bounds.bottom - width / 7};
-    RoundRect(dc, body.left, body.top, body.right, body.bottom, stroke * 2, stroke * 2);
-
-    HBRUSH key_brush = CreateSolidBrush(background);
-    SelectObject(dc, key_brush);
-    const int key_radius = std::max(1, width / 18);
-    const int key_x = (body.left + body.right) / 2;
-    const int key_y = (body.top + body.bottom) / 2;
-    Ellipse(dc, key_x - key_radius, key_y - key_radius, key_x + key_radius, key_y + key_radius);
-
-    SelectObject(dc, old_brush);
-    SelectObject(dc, old_pen);
-    DeleteObject(key_brush);
-    DeleteObject(fill);
-    DeleteObject(pen);
 }
 
 std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
@@ -189,6 +153,10 @@ void DashboardRenderer::ResetFonts() {
             *font = nullptr;
         }
     }
+    if (brand_icon_ != nullptr) {
+        DestroyIcon(brand_icon_);
+        brand_icon_ = nullptr;
+    }
 }
 
 void DashboardRenderer::Initialize(UINT dpi) {
@@ -200,6 +168,13 @@ void DashboardRenderer::Initialize(UINT dpi) {
     body_semibold_font_ = CreateUiFont(dpi_, 10, FW_SEMIBOLD);
     small_font_ = CreateUiFont(dpi_, 8, FW_NORMAL);
     tiny_semibold_font_ = CreateUiFont(dpi_, 8, FW_SEMIBOLD);
+    brand_icon_ = static_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDI_AGENTLATCH),
+        IMAGE_ICON,
+        Scale(38),
+        Scale(38),
+        LR_DEFAULTCOLOR));
 }
 
 int DashboardRenderer::Scale(int value) const {
@@ -207,7 +182,7 @@ int DashboardRenderer::Scale(int value) const {
 }
 
 SIZE DashboardRenderer::PreferredClientSize() const {
-    return SIZE{Scale(476), Scale(638)};
+    return SIZE{Scale(500), Scale(562)};
 }
 
 void DashboardRenderer::AddHitTarget(const RECT& rectangle, UiAction action) {
@@ -235,14 +210,14 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
     const int margin = Scale(20);
     const int content_right = width - margin;
 
-    RECT logo{margin, Scale(17), margin + Scale(36), Scale(53)};
-    FillRoundedRectangle(memory, logo, Scale(11), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(38, 113, 89) : kBorder);
-    RECT logo_mark{logo.left + Scale(7), logo.top + Scale(6), logo.right - Scale(7), logo.bottom - Scale(6)};
-    DrawLatchMark(memory, logo_mark, state.active ? kActive : kMuted, state.active ? kActiveDark : kSurfaceRaised);
+    RECT logo{margin, Scale(16), margin + Scale(38), Scale(54)};
+    if (brand_icon_ != nullptr) {
+        DrawIconEx(memory, logo.left, logo.top, brand_icon_, logo.right - logo.left, logo.bottom - logo.top, 0, nullptr, DI_NORMAL);
+    }
 
-    RECT title{logo.right + Scale(11), Scale(14), logo.right + Scale(130), Scale(43)};
-    DrawTextBlock(memory, L"AgentLatch", title, title_font_, kText);
-    RECT version_badge{title.right + Scale(7), Scale(22), title.right + Scale(119), Scale(43)};
+    RECT title{logo.right + Scale(12), Scale(13), logo.right + Scale(158), Scale(45)};
+    DrawTextBlock(memory, L"AgentLatch", title, title_font_, kText, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    RECT version_badge{title.right + Scale(5), Scale(21), content_right, Scale(44)};
     DrawTextBlock(
         memory,
         L"v" + std::wstring(kAgentLatchVersion),
@@ -250,25 +225,14 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         small_font_,
         kFaint);
 
-    RECT hooks_button{content_right - Scale(96), Scale(20), content_right, Scale(50)};
-    FillRoundedRectangle(memory, hooks_button, Scale(10), kSurface, kBorder);
-    DrawTextBlock(
-        memory,
-        L"Integrations",
-        hooks_button,
-        tiny_semibold_font_,
-        kBlue,
-        DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-    AddHitTarget(hooks_button, UiAction::SetupHooks);
-
-    RECT hero{margin, Scale(70), content_right, Scale(138)};
+    RECT hero{margin, Scale(70), content_right, Scale(143)};
     FillRoundedRectangle(memory, hero, Scale(14), state.active ? RGB(15, 38, 33) : kSurface, state.active ? RGB(31, 91, 72) : kBorder);
     DrawStatusDot(memory, hero.left + Scale(22), hero.top + Scale(25), Scale(5), state.active ? kActive : kIdle);
     RECT hero_label{hero.left + Scale(37), hero.top + Scale(10), hero.right - Scale(94), hero.top + Scale(38)};
     const std::wstring headline = state.active ? L"Keeping your PC awake" : L"Ready when your agents run";
     DrawTextBlock(memory, headline, hero_label, heading_font_, state.active ? kActive : kText);
 
-    RECT hero_detail{hero.left + Scale(22), hero.top + Scale(38), hero.right - Scale(20), hero.bottom - Scale(7)};
+    RECT hero_detail{hero.left + Scale(22), hero.top + Scale(39), hero.right - Scale(20), hero.bottom - Scale(7)};
     std::wstring detail;
     if (!state.power_request_available) {
         detail = L"Windows rejected the power request.";
@@ -277,13 +241,16 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
                  (state.latches.size() == 1 ? L" latch is active" : L" latches are active");
         detail += state.keep_display_on ? L" · display stays on" : L" · display may sleep";
     } else {
-        detail = L"Windows can sleep · active tasks are monitored automatically";
+        detail = L"Windows can sleep · watching for active agent work";
     }
-    DrawTextBlock(memory, detail, hero_detail, body_font_, state.power_request_available ? kMuted : kWarning);
+    DrawTextBlock(
+        memory,
+        detail,
+        hero_detail,
+        body_font_,
+        state.power_request_available ? kMuted : kWarning,
+        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
 
-    const bool has_manual = std::any_of(state.latches.begin(), state.latches.end(), [](const Latch& latch) {
-        return latch.kind == LatchKind::Manual || latch.kind == LatchKind::Timer;
-    });
     RECT state_chip{hero.right - Scale(78), hero.top + Scale(13), hero.right - Scale(14), hero.top + Scale(37)};
     FillRoundedRectangle(memory, state_chip, Scale(12), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(31, 91, 72) : kBorder);
     DrawTextBlock(
@@ -293,36 +260,10 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         tiny_semibold_font_,
         state.active ? kActive : kFaint,
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-    if (has_manual) {
-        RECT release{hero.right - Scale(94), hero.bottom - Scale(27), hero.right - Scale(14), hero.bottom - Scale(7)};
-        DrawTextBlock(memory, L"Release", release, small_font_, kBlue, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-        AddHitTarget(release, UiAction::ReleaseManual);
-    }
-
-    RECT quick_title{margin, Scale(153), content_right, Scale(176)};
-    DrawTextBlock(memory, L"Keep awake for", quick_title, body_semibold_font_, kText);
-
-    const std::array<std::pair<const wchar_t*, UiAction>, 4> quick_actions = {{
-        {L"30m", UiAction::Timer30Minutes},
-        {L"1 hour", UiAction::Timer1Hour},
-        {L"2 hours", UiAction::Timer2Hours},
-        {L"Until stopped", UiAction::ManualUntilReleased},
-    }};
-    const int gap = Scale(6);
-    const int available_width = content_right - margin - gap * 3;
-    const int button_width = available_width / 4;
-    for (std::size_t index = 0; index < quick_actions.size(); ++index) {
-        const int left = margin + static_cast<int>(index) * (button_width + gap);
-        RECT button{left, Scale(178), left + button_width, Scale(216)};
-        FillRoundedRectangle(memory, button, Scale(10), index == 3 ? kBlueDark : kSurface, index == 3 ? RGB(51, 85, 126) : kBorder);
-        DrawTextBlock(memory, quick_actions[index].first, button, small_font_, index == 3 ? kBlue : kText, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-        AddHitTarget(button, quick_actions[index].second);
-    }
-
-    RECT active_title{margin, Scale(233), content_right, Scale(256)};
+    RECT active_title{margin, Scale(160), content_right, Scale(183)};
     DrawTextBlock(memory, L"Running now", active_title, body_semibold_font_, kText);
 
-    RECT latch_card{margin, Scale(258), content_right, Scale(338)};
+    RECT latch_card{margin, Scale(185), content_right, Scale(265)};
     FillRoundedRectangle(memory, latch_card, Scale(12), kSurface, kBorder);
     if (state.latches.empty()) {
         DrawStatusDot(memory, latch_card.left + Scale(22), latch_card.top + Scale(40), Scale(4), kFaint);
@@ -352,10 +293,10 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         }
     }
 
-    RECT automation_title{margin, Scale(355), content_right, Scale(380)};
+    RECT automation_title{margin, Scale(282), content_right, Scale(307)};
     DrawTextBlock(memory, L"Agent tracking", automation_title, body_semibold_font_, kText);
-    RECT automation_hint{margin + Scale(132), Scale(355), content_right, Scale(380)};
-    DrawTextBlock(memory, L"Click a row to change its mode", automation_hint, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    RECT automation_hint{margin + Scale(132), Scale(282), content_right, Scale(307)};
+    DrawTextBlock(memory, L"Click to cycle Tasks · Open · Off", automation_hint, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
 
     static constexpr std::array<Provider, 5> providers = {
         Provider::Codex,
@@ -364,7 +305,7 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         Provider::OpenCode,
         Provider::GeminiCli,
     };
-    RECT provider_list{margin, Scale(382), content_right, Scale(552)};
+    RECT provider_list{margin, Scale(309), content_right, Scale(479)};
     FillRoundedRectangle(memory, provider_list, Scale(12), kSurface, kBorder);
     for (std::size_t index = 0; index < providers.size(); ++index) {
         const Provider provider = providers[index];
@@ -393,7 +334,7 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         AddHitTarget(provider_row, ProviderAction(provider));
     }
 
-    RECT footer{margin, Scale(570), content_right, Scale(616)};
+    RECT footer{margin, Scale(496), content_right, Scale(542)};
     FillRoundedRectangle(memory, footer, Scale(12), kSurface, kBorder);
     const int half = (footer.right - footer.left) / 2;
     RECT display_area{footer.left, footer.top, footer.left + half, footer.bottom};
