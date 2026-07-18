@@ -23,7 +23,10 @@ struct HookTranslation {
 };
 
 bool ExtractJsonString(std::string_view json, std::string_view field, std::wstring* value);
-HookTranslation TranslateHookEvent(Provider provider, std::string_view json);
-int HandleHookInvocation(Provider provider);
+HookTranslation TranslateHookEvent(
+    Provider provider,
+    std::string_view json,
+    std::wstring_view event_override = {});
+int HandleHookInvocation(Provider provider, std::wstring_view event_override = {});
 
 }  // namespace agent_latch

@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.1.0 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.2.0 LANGUAGES CXX RC)
+
+set(AGENTLATCH_VERSION_LABEL "${PROJECT_VERSION}" CACHE STRING "User-visible AgentLatch version label")
+
+configure_file(
+    resources/version.rc.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
+    @ONLY
+)
 
 add_executable(AgentLatch WIN32
     src/main.cpp
@@ -14,7 +22,7 @@ add_executable(AgentLatch WIN32
     src/agent_detector.cpp
     src/ipc.cpp
     src/hook_bridge.cpp
-    resources/version.rc
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
 )
 
 target_compile_features(AgentLatch PRIVATE cxx_std_20)
@@ -23,6 +31,7 @@ target_include_directories(AgentLatch PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/resources"
 )
 target_compile_definitions(AgentLatch PRIVATE
+    AGENTLATCH_VERSION="${AGENTLATCH_VERSION_LABEL}"
     UNICODE
     _UNICODE
     NOMINMAX

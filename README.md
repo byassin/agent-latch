@@ -9,15 +9,16 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep only while useful work is still running. It understands concurrent AI coding agents, exposes every active reason, and releases Windows the moment the final latch ends.
 
 <p align="center">
-  <img src="assets/dashboard.png" width="520" alt="AgentLatch dashboard">
+  <img src="assets/dashboard.jpg" width="476" alt="AgentLatch dashboard showing an active Codex task">
 </p>
 
 ## Why AgentLatch
 
-- **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Gemini CLI.
+- **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Google Antigravity/Gemini CLI.
 - **Concurrency-safe:** four subagents and one manual timer become five independent latches; sleep resumes only after all five release.
-- **Precise when possible:** optional lifecycle hooks track sessions and subagents instead of guessing from a process name.
-- **Useful without setup:** a low-overhead process/activity detector works immediately as a fallback.
+- **Your choice of precision:** set every provider independently to **Tasks**, **Open**, or **Off**.
+- **Task-first by default:** Codex desktop lifecycle records and provider hooks track actual work; conservative CLI activity detection is the fallback.
+- **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
 - **Transparent:** the dashboard shows exactly what is keeping the machine awake and why.
 - **Still a great wake utility:** 30-minute, one-hour, two-hour, and until-released controls are always one click away.
 - **Native and private:** one Win32 executable, no account, no service, no telemetry, and no administrator rights.
@@ -26,41 +27,29 @@ AgentLatch uses a Windows power request. It does not jiggle the mouse, synthesiz
 
 ## Provider support
 
-| Provider | Automatic detection | Lifecycle hooks | Concurrent work |
-|---|---:|---:|---:|
-| Codex | Yes | Yes | Sessions and subagents |
-| Claude Code | Yes | Yes | Sessions and subagents |
-| Cursor | Yes | Yes, where supported | Agent and subagent events |
-| OpenCode | Yes | External lease API | Process trees |
-| Gemini CLI | Yes | External lease API | Process trees |
+| Provider | Tasks mode | Open mode | Lifecycle hooks |
+|---|---|---|---|
+| Codex | Native desktop lifecycle + hooks/CLI activity | Desktop app or CLI | Desktop tasks; CLI sessions and subagents |
+| Claude Code | Hooks + CLI activity | Desktop app or CLI | Sessions and subagents |
+| Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
+| OpenCode | CLI activity | CLI process | External lease API |
+| Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
 
-Hooks renew bounded leases and release them on stop events. If an agent crashes or never sends a final event, the lease expires automatically. Process detection remains available as a safety net and can be disabled independently for each provider.
+In **Tasks** mode, opening an Electron app by itself never latches the computer. Native lifecycle state and hooks acquire a bounded latch when work begins and release it when the provider reports completion. Hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
 
-## Get started
+## Install
 
-### Portable
+1. Download `AgentLatch-Setup-<version>-x64.exe` from the latest release.
+2. Double-click the setup executable.
+3. Choose whether AgentLatch should start with Windows, then select **Install**.
 
-1. Download the release ZIP for your architecture.
-2. Extract it anywhere.
-3. Run `AgentLatch.exe`.
+Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. The exact build number is always visible beside the AgentLatch name in the dashboard and in the window title.
 
-Closing the dashboard keeps AgentLatch in the notification area. Use the dashboard or tray menu to enable **Start with Windows**.
+Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. The Windows uninstaller removes only AgentLatch's own integration entries.
 
-### Optional install
+Codex desktop task detection is native and automatic: AgentLatch reads the local start/complete lifecycle stream that Codex already maintains. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
 
-From the extracted release folder:
-
-```powershell
-.\scripts\install.ps1 -StartWithWindows
-```
-
-Add precise Codex, Claude Code, and Cursor lifecycle hooks from the **Set up hooks** button, or run:
-
-```powershell
-.\scripts\install-integrations.ps1 -AgentLatchPath "$env:LOCALAPPDATA\AgentLatch\AgentLatch.exe"
-```
-
-The integration installer preserves existing configuration, avoids duplicate entries, and creates a timestamped backup before every changed JSON file. See [Integrations](docs/INTEGRATIONS.md) for provider-specific details.
+Early preview installers may display a Windows SmartScreen warning until project releases are Authenticode-signed.
 
 ## Command-line lease API
 
@@ -89,6 +78,7 @@ Requirements:
 - Windows 10 or Windows 11
 - Visual Studio 2022 Build Tools with Desktop development with C++
 - CMake 3.24 or newer
+- Inno Setup 7 when building the Windows setup executable
 
 ```powershell
 git clone https://github.com/byassin/agent-latch.git
@@ -97,6 +87,12 @@ cd agent-latch
 ```
 
 The x64 build script runs the executable's self-test before reporting success. CI also compiles ARM64.
+
+Build the setup executable after compiling AgentLatch:
+
+```powershell
+.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.0
+```
 
 ## Design principles
 

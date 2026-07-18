@@ -92,10 +92,69 @@ int RunSelfTests() {
         return 46;
     }
 
+    const ProcessClassification cursor_app = ClassifyAgentProcess(
+        L"Cursor.exe", L"C:\\Users\\test\\AppData\\Local\\Programs\\cursor\\Cursor.exe");
+    const ProcessClassification antigravity_app = ClassifyAgentProcess(
+        L"Antigravity.exe", L"C:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe");
+    const ProcessClassification claude_desktop = ClassifyAgentProcess(
+        L"Claude.exe", L"C:\\Program Files\\WindowsApps\\Claude_1.0.0.0_x64__test\\app\\Claude.exe");
+    const ProcessClassification claude_cli = ClassifyAgentProcess(L"claude.exe", L"C:\\tools\\claude.exe");
+    const ProcessClassification claude_unknown = ClassifyAgentProcess(L"claude.exe", L"");
+    const ProcessClassification codex_desktop = ClassifyAgentProcess(
+        L"codex.exe", L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_1.0.0.0_x64__test\\app\\codex.exe");
+    if (cursor_app.provider != Provider::Cursor || cursor_app.activity_capable ||
+        antigravity_app.provider != Provider::GeminiCli || antigravity_app.activity_capable ||
+        claude_desktop.provider != Provider::ClaudeCode || claude_desktop.activity_capable ||
+        claude_cli.provider != Provider::ClaudeCode || !claude_cli.activity_capable ||
+        claude_unknown.provider != Provider::ClaudeCode || claude_unknown.activity_capable ||
+        codex_desktop.provider != Provider::Codex || codex_desktop.activity_capable) {
+        return 47;
+    }
+
+    const std::string_view antigravity_start =
+        R"({"conversationId":"gravity-1","fullyIdle":false,"workspacePaths":["C:\\work\\demo"]})";
+    const HookTranslation gravity_start =
+        TranslateHookEvent(Provider::GeminiCli, antigravity_start, L"PreInvocation");
+    const HookTranslation gravity_background =
+        TranslateHookEvent(Provider::GeminiCli, antigravity_start, L"Stop");
+    const std::string_view antigravity_stop = R"({"conversationId":"gravity-1","fullyIdle":true})";
+    const HookTranslation gravity_stop =
+        TranslateHookEvent(Provider::GeminiCli, antigravity_stop, L"Stop");
+    if (gravity_start.action != HookAction::Upsert || gravity_start.id != L"gemini:gravity-1" ||
+        gravity_background.action != HookAction::Upsert || gravity_stop.action != HookAction::Remove) {
+        return 48;
+    }
+
+    const std::string_view cursor_complete =
+        R"({"conversation_id":"cursor-1","generation_id":"generation-1","hook_event_name":"afterAgentResponse"})";
+    const HookTranslation cursor_stop = TranslateHookEvent(Provider::Cursor, cursor_complete);
+    if (cursor_stop.action != HookAction::Remove || cursor_stop.id != L"cursor:cursor-1") {
+        return 49;
+    }
+    if (NextDetectionMode(DetectionMode::Tasks) != DetectionMode::Open ||
+        NextDetectionMode(DetectionMode::Open) != DetectionMode::Off ||
+        NextDetectionMode(DetectionMode::Off) != DetectionMode::Tasks) {
+        return 50;
+    }
+
+    const std::string_view codex_desktop_active =
+        R"({"type":"event_msg","payload":{"type":"task_complete"}}
+{"type":"response_item","payload":{"type":"message","text":"escaped \"type\":\"task_started\""}}
+{"type":"event_msg","payload":{"type":"task_started"}})";
+    const std::string_view codex_desktop_complete =
+        R"({"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"task_complete"}})";
+    if (LatestCodexSessionLifecycle(codex_desktop_active) != CodexSessionLifecycle::Active ||
+        LatestCodexSessionLifecycle(codex_desktop_complete) != CodexSessionLifecycle::Inactive ||
+        LatestCodexSessionLifecycle(R"({"type":"event_msg","payload":{"type":"user_message"}})") !=
+            CodexSessionLifecycle::Unknown) {
+        return 52;
+    }
+
     PowerRequest request;
     if (!request.IsAvailable() || !request.Apply(true, false) || !request.IsSystemRequired() ||
         !request.Apply(false, false) || request.IsSystemRequired()) {
-        return 47;
+        return 51;
     }
     return 0;
 }
@@ -161,7 +220,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
         return RunSelfTests();
     }
     if (command_line.Has(L"--hook")) {
-        return HandleHookInvocation(ProviderFromString(command_line.ValueAfter(L"--hook")));
+        return HandleHookInvocation(
+            ProviderFromString(command_line.ValueAfter(L"--hook")),
+            command_line.ValueAfter(L"--event"));
     }
     const int utility_result = HandleUtilityCommand(command_line);
     if (utility_result >= 0) {

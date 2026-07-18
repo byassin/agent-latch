@@ -1,20 +1,26 @@
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'AgentLatch'),
+    [switch]$KeepHooks,
+    [Parameter(DontShow)]
     [switch]$RemoveHooks,
-    [switch]$RemoveSettings
+    [switch]$RemoveSettings,
+    [string]$ConfigRoot = ([Environment]::GetFolderPath('UserProfile'))
 )
 
 $ErrorActionPreference = 'Stop'
+if ($KeepHooks -and $RemoveHooks) {
+    throw '-KeepHooks and the legacy -RemoveHooks switch cannot be used together.'
+}
 $InstallDirectory = [System.IO.Path]::GetFullPath($InstallDirectory)
 $executable = Join-Path $InstallDirectory 'AgentLatch.exe'
 
 if ($PSCmdlet.ShouldProcess($InstallDirectory, 'Uninstall AgentLatch')) {
     if (Test-Path -LiteralPath $executable) {
-        if ($RemoveHooks) {
+        if (-not $KeepHooks) {
             $hookScript = Join-Path $InstallDirectory 'install-integrations.ps1'
             if (Test-Path -LiteralPath $hookScript) {
-                & $hookScript -AgentLatchPath $executable -Uninstall
+                & $hookScript -AgentLatchPath $executable -ConfigRoot $ConfigRoot -Uninstall
             }
         }
         & $executable --quit
@@ -29,4 +35,9 @@ if ($PSCmdlet.ShouldProcess($InstallDirectory, 'Uninstall AgentLatch')) {
         Remove-Item -LiteralPath $InstallDirectory -Recurse -Force
     }
     Write-Host 'AgentLatch was uninstalled.'
+    if ($KeepHooks) {
+        Write-Host 'Agent integrations were kept by request.'
+    } else {
+        Write-Host 'AgentLatch entries were removed from supported agent configurations.'
+    }
 }

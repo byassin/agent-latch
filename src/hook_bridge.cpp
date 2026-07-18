@@ -87,11 +87,66 @@ std::vector<char> ReadStandardInput() {
 }
 
 bool IsReleaseEvent(const std::wstring& event_name) {
-    return event_name == L"stop" || event_name == L"sessionend" || event_name == L"stopfailure";
+    return event_name == L"stop" || event_name == L"sessionend" || event_name == L"stopfailure" ||
+           event_name == L"afteragentresponse";
 }
 
 bool IsSubagentStopEvent(const std::wstring& event_name) {
     return event_name == L"subagentstop" || event_name == L"teammateidle";
+}
+
+bool IsActivityEvent(const std::wstring& event_name) {
+    return event_name == L"userpromptsubmit" || event_name == L"beforesubmitprompt" ||
+           event_name == L"pretooluse" || event_name == L"posttooluse" ||
+           event_name == L"posttoolbatch" || event_name == L"subagentstart" ||
+           event_name == L"taskcreated" || event_name == L"preinvocation" ||
+           event_name == L"postinvocation" || event_name == L"afteragentthought";
+}
+
+bool ExtractJsonBoolean(std::string_view json, std::string_view field, bool* value) {
+    if (value == nullptr) {
+        return false;
+    }
+    std::size_t cursor = json.find(field);
+    while (cursor != std::string_view::npos &&
+           (cursor == 0 || cursor + field.size() >= json.size() || json[cursor - 1] != '"' ||
+            json[cursor + field.size()] != '"')) {
+        cursor = json.find(field, cursor + 1);
+    }
+    if (cursor == std::string_view::npos) {
+        return false;
+    }
+    cursor += field.size() + 1;
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+    if (cursor >= json.size() || json[cursor++] != ':') {
+        return false;
+    }
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+    if (json.substr(cursor, 4) == "true") {
+        *value = true;
+        return true;
+    }
+    if (json.substr(cursor, 5) == "false") {
+        *value = false;
+        return true;
+    }
+    return false;
+}
+
+void WriteHookResponse(Provider provider, const std::wstring& event_name) {
+    const char* response = provider == Provider::GeminiCli && event_name == L"stop"
+                               ? "{\"decision\":\"allow\"}\n"
+                               : "{}\n";
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (output == nullptr || output == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    DWORD written = 0;
+    WriteFile(output, response, static_cast<DWORD>(std::char_traits<char>::length(response)), &written, nullptr);
 }
 
 }  // namespace
@@ -196,7 +251,10 @@ bool ExtractJsonString(std::string_view json, std::string_view field, std::wstri
     return false;
 }
 
-HookTranslation TranslateHookEvent(Provider provider, std::string_view json) {
+HookTranslation TranslateHookEvent(
+    Provider provider,
+    std::string_view json,
+    std::wstring_view event_override) {
     HookTranslation translation;
     translation.provider = provider;
 
@@ -205,13 +263,22 @@ HookTranslation TranslateHookEvent(Provider provider, std::string_view json) {
     std::wstring agent_id;
     std::wstring agent_type;
     std::wstring cwd;
-    ExtractJsonString(json, "hook_event_name", &event_name);
+    event_name.assign(event_override);
+    if (event_name.empty()) {
+        ExtractJsonString(json, "hook_event_name", &event_name);
+    }
     if (!ExtractJsonString(json, "session_id", &session_id)) {
-        ExtractJsonString(json, "conversation_id", &session_id);
+        if (!ExtractJsonString(json, "conversation_id", &session_id)) {
+            ExtractJsonString(json, "conversationId", &session_id);
+        }
     }
     ExtractJsonString(json, "agent_id", &agent_id);
     if (agent_id.empty()) {
-        ExtractJsonString(json, "generation_id", &agent_id);
+        if (!ExtractJsonString(json, "generation_id", &agent_id)) {
+            if (!ExtractJsonString(json, "agentId", &agent_id)) {
+                ExtractJsonString(json, "generationId", &agent_id);
+            }
+        }
     }
     ExtractJsonString(json, "agent_type", &agent_type);
     ExtractJsonString(json, "cwd", &cwd);
@@ -242,14 +309,18 @@ HookTranslation TranslateHookEvent(Provider provider, std::string_view json) {
     const std::wstring project = PathLeaf(cwd);
     translation.detail = project.empty() ? L"Lifecycle hook" : project;
 
-    if (IsReleaseEvent(event_name) || IsSubagentStopEvent(event_name)) {
+    bool fully_idle = true;
+    const bool has_fully_idle = ExtractJsonBoolean(json, "fullyIdle", &fully_idle);
+    if ((IsReleaseEvent(event_name) || IsSubagentStopEvent(event_name)) &&
+        !(event_name == L"stop" && has_fully_idle && !fully_idle)) {
         translation.action = HookAction::Remove;
         return translation;
     }
 
     // SessionStart alone does not mean an agent is working. Every configured
     // turn/tool event acquires or renews a bounded lease.
-    if (event_name == L"sessionstart") {
+    const bool background_stop = event_name == L"stop" && has_fully_idle && !fully_idle;
+    if (event_name == L"sessionstart" || (!IsActivityEvent(event_name) && !background_stop)) {
         return translation;
     }
 
@@ -258,13 +329,24 @@ HookTranslation TranslateHookEvent(Provider provider, std::string_view json) {
     return translation;
 }
 
-int HandleHookInvocation(Provider provider) {
+int HandleHookInvocation(Provider provider, std::wstring_view event_override) {
     const std::vector<char> input = ReadStandardInput();
-    const HookTranslation translation = TranslateHookEvent(provider, std::string_view(input.data(), input.size()));
-    if (translation.action == HookAction::None) {
-        return 0;
+    std::wstring event_name(event_override);
+    if (event_name.empty()) {
+        ExtractJsonString(std::string_view(input.data(), input.size()), "hook_event_name", &event_name);
     }
-    if (!EnsureBackgroundInstance()) {
+    event_name = Lowercase(event_name);
+    const HookTranslation translation =
+        TranslateHookEvent(provider, std::string_view(input.data(), input.size()), event_override);
+    if (!event_name.empty()) {
+        if (!EnsureBackgroundInstance()) {
+            WriteHookResponse(provider, event_name);
+            return 0;
+        }
+        SendIpcMessage(std::wstring(L"SEEN\t") + ProviderKey(provider));
+    }
+    if (translation.action == HookAction::None) {
+        WriteHookResponse(provider, event_name);
         return 0;
     }
 
@@ -278,6 +360,7 @@ int HandleHookInvocation(Provider provider) {
                                            translation.detail,
                                            translation.ttl_milliseconds);
     SendIpcMessage(message);
+    WriteHookResponse(provider, event_name);
     return 0;
 }
 

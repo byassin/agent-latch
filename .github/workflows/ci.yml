@@ -42,11 +42,47 @@ jobs:
       - name: Test integration configuration merging
         if: matrix.arch == 'x64'
         shell: pwsh
-        run: .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
+        run: |
+          .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
+          .\tests\install.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
+
+      - name: Install pinned Inno Setup compiler
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $innoInstaller = Join-Path $env:RUNNER_TEMP 'innosetup-7.0.2-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_0_2/innosetup-7.0.2-x64.exe' -OutFile $innoInstaller
+          $expectedHash = '5ad54ca3def786f8f4212552e54cc6d8d61329e2d24a1cfee0571d42c2684ff1'
+          $actualHash = (Get-FileHash -LiteralPath $innoInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) {
+            throw "Inno Setup checksum mismatch: $actualHash"
+          }
+          $process = Start-Process -FilePath $innoInstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER') -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Inno Setup installation failed with exit code $($process.ExitCode)."
+          }
+
+      - name: Build and test Windows setup
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.0-ci.0'
+          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.0-ci.0' -OutputDirectory .\dist-test -TestBuild
+          .\tests\installer.tests.ps1 -InstallerPath .\dist-test\AgentLatch-Setup-0.2.0-ci.0-x64-test.exe
 
       - name: Upload executable
         uses: actions/upload-artifact@v7
         with:
           name: AgentLatch-${{ matrix.arch }}
           path: build/Release/AgentLatch.exe
+          if-no-files-found: error
+
+      - name: Upload setup executable
+        if: matrix.arch == 'x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: AgentLatch-Setup-x64
+          path: |
+            dist/*.exe
+            dist/*.sha256
           if-no-files-found: error
