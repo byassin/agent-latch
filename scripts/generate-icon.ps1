@@ -29,7 +29,7 @@ function New-RoundedRectanglePath {
     return $path
 }
 
-function New-AgentLatchPng {
+function New-AgentLatchIconDib {
     param([int]$Size)
 
     $bitmap = [System.Drawing.Bitmap]::new($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -70,10 +70,50 @@ function New-AgentLatchPng {
     $graphics.FillEllipse($nodeBlue, 39 * $scale, 121 * $scale, 14 * $scale, 14 * $scale)
     $graphics.FillEllipse($nodeViolet, 203 * $scale, 121 * $scale, 14 * $scale, 14 * $scale)
 
+    # Store standard 32-bit DIB frames rather than PNG-compressed frames.
+    # Windows SDK resource compilers accept this format consistently on both
+    # x64 and ARM64 build hosts.
     $stream = [System.IO.MemoryStream]::new()
-    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    $dibWriter = [System.IO.BinaryWriter]::new($stream)
+    $maskRowBytes = [int]([Math]::Ceiling($Size / 32.0) * 4)
+    $pixelBytes = $Size * $Size * 4
+
+    $dibWriter.Write([uint32]40)             # BITMAPINFOHEADER size
+    $dibWriter.Write([int32]$Size)
+    $dibWriter.Write([int32]($Size * 2))     # XOR bitmap plus AND mask
+    $dibWriter.Write([uint16]1)
+    $dibWriter.Write([uint16]32)
+    $dibWriter.Write([uint32]0)              # BI_RGB
+    $dibWriter.Write([uint32]$pixelBytes)
+    $dibWriter.Write([int32]0)
+    $dibWriter.Write([int32]0)
+    $dibWriter.Write([uint32]0)
+    $dibWriter.Write([uint32]0)
+
+    for ($y = $Size - 1; $y -ge 0; $y--) {
+        for ($x = 0; $x -lt $Size; $x++) {
+            $pixel = $bitmap.GetPixel($x, $y)
+            $dibWriter.Write([byte]$pixel.B)
+            $dibWriter.Write([byte]$pixel.G)
+            $dibWriter.Write([byte]$pixel.R)
+            $dibWriter.Write([byte]$pixel.A)
+        }
+    }
+    for ($y = $Size - 1; $y -ge 0; $y--) {
+        $maskRow = [byte[]]::new($maskRowBytes)
+        for ($x = 0; $x -lt $Size; $x++) {
+            if ($bitmap.GetPixel($x, $y).A -eq 0) {
+                $byteIndex = [int][Math]::Floor($x / 8.0)
+                $mask = 0x80 -shr ($x % 8)
+                $maskRow[$byteIndex] = [byte]($maskRow[$byteIndex] -bor $mask)
+            }
+        }
+        $dibWriter.Write($maskRow)
+    }
+    $dibWriter.Flush()
     $bytes = $stream.ToArray()
 
+    $dibWriter.Dispose()
     $stream.Dispose()
     $nodePen.Dispose()
     $nodeBlue.Dispose()
@@ -92,7 +132,12 @@ function New-AgentLatchPng {
 }
 
 $sizes = @(16, 24, 32, 48, 64, 256)
-$images = @($sizes | ForEach-Object { New-AgentLatchPng -Size $_ })
+$images = [System.Collections.Generic.List[byte[]]]::new()
+foreach ($size in $sizes) {
+    # A PowerShell pipeline flattens byte arrays. A typed list preserves each
+    # complete image frame for the ICO directory offsets and lengths below.
+    $images.Add((New-AgentLatchIconDib -Size $size))
+}
 $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($fullOutputPath)) | Out-Null
 
