@@ -1,0 +1,10 @@
+/build*/
+/dist/
+/.vs/
+/.idea/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.zip
+*.sha256

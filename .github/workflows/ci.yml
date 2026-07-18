@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, ARM64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -A ${{ matrix.arch }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run native self-test
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath .\build\Release\AgentLatch.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "AgentLatch self-test failed with exit code $($process.ExitCode)."
+          }
+
+      - name: Test integration configuration merging
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentLatch-${{ matrix.arch }}
+          path: build/Release/AgentLatch.exe
+          if-no-files-found: error
