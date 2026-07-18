@@ -90,13 +90,15 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.0
+.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.1
 ```
 
 ## Design principles
 
 - A wake reason is a lease, never an unexplained global switch.
 - The display is allowed to turn off by default while the system stays awake.
+- Wake-status notifications can be disabled from the dashboard or tray menu.
+- Dashboard settings explain the difference between PC wake protection, keeping the screen on, and launching AgentLatch at Windows sign-in.
 - Every automatic path has a timeout or observable process state.
 - Provider integrations are additive and editable; existing hook configuration belongs to the user.
 - Normal Windows sleep behavior returns immediately when the last latch releases.

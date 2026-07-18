@@ -86,6 +86,29 @@ void DrawStatusDot(HDC dc, int center_x, int center_y, int radius, COLORREF colo
     DeleteObject(brush);
 }
 
+void DrawSwitch(HDC dc, const RECT& rectangle, bool enabled) {
+    FillRoundedRectangle(
+        dc,
+        rectangle,
+        (rectangle.bottom - rectangle.top) / 2,
+        enabled ? RGB(24, 103, 82) : RGB(49, 56, 67),
+        enabled ? RGB(42, 151, 116) : RGB(72, 80, 93));
+
+    const int inset = 3;
+    const int diameter = rectangle.bottom - rectangle.top - (inset * 2);
+    const int left = enabled ? rectangle.right - inset - diameter : rectangle.left + inset;
+    RECT thumb{left, rectangle.top + inset, left + diameter, rectangle.top + inset + diameter};
+    HBRUSH brush = CreateSolidBrush(enabled ? kActive : kMuted);
+    HPEN pen = CreatePen(PS_SOLID, 1, enabled ? kActive : kMuted);
+    HGDIOBJ old_brush = SelectObject(dc, brush);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    Ellipse(dc, thumb.left, thumb.top, thumb.right, thumb.bottom);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    DeleteObject(pen);
+    DeleteObject(brush);
+}
+
 std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
     if (latch.kind == LatchKind::Detector) {
         if (latch.label.ends_with(L" open")) {
@@ -182,7 +205,7 @@ int DashboardRenderer::Scale(int value) const {
 }
 
 SIZE DashboardRenderer::PreferredClientSize() const {
-    return SIZE{Scale(500), Scale(562)};
+    return SIZE{Scale(500), Scale(714)};
 }
 
 void DashboardRenderer::AddHitTarget(const RECT& rectangle, UiAction action) {
@@ -334,21 +357,77 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         AddHitTarget(provider_row, ProviderAction(provider));
     }
 
-    RECT footer{margin, Scale(496), content_right, Scale(542)};
-    FillRoundedRectangle(memory, footer, Scale(12), kSurface, kBorder);
-    const int half = (footer.right - footer.left) / 2;
-    RECT display_area{footer.left, footer.top, footer.left + half, footer.bottom};
-    RECT startup_area{footer.left + half, footer.top, footer.right, footer.bottom};
-    RECT footer_divider{footer.left + half, footer.top + Scale(9), footer.left + half + 1, footer.bottom - Scale(9)};
-    FillRectangle(memory, footer_divider, kBorder);
-    DrawStatusDot(memory, display_area.left + Scale(18), display_area.top + Scale(23), Scale(4), state.keep_display_on ? kBlue : kFaint);
-    RECT display_text{display_area.left + Scale(30), display_area.top, display_area.right - Scale(8), display_area.bottom};
-    DrawTextBlock(memory, state.keep_display_on ? L"Display on" : L"Display may sleep", display_text, small_font_, state.keep_display_on ? kText : kMuted);
-    DrawStatusDot(memory, startup_area.left + Scale(18), startup_area.top + Scale(23), Scale(4), state.start_with_windows ? kActive : kFaint);
-    RECT startup_text{startup_area.left + Scale(30), startup_area.top, startup_area.right - Scale(8), startup_area.bottom};
-    DrawTextBlock(memory, state.start_with_windows ? L"Starts with Windows" : L"Start at sign-in", startup_text, small_font_, state.start_with_windows ? kText : kMuted);
-    AddHitTarget(display_area, UiAction::ToggleDisplay);
-    AddHitTarget(startup_area, UiAction::ToggleStartup);
+    RECT settings_title{margin, Scale(496), content_right, Scale(521)};
+    DrawTextBlock(memory, L"Settings", settings_title, body_semibold_font_, kText);
+    RECT settings_hint{margin + Scale(120), Scale(496), content_right, Scale(521)};
+    DrawTextBlock(
+        memory,
+        L"Click any row to change",
+        settings_hint,
+        small_font_,
+        kFaint,
+        DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+
+    RECT settings_card{margin, Scale(523), content_right, Scale(694)};
+    FillRoundedRectangle(memory, settings_card, Scale(12), kSurface, kBorder);
+
+    struct SettingRow {
+        const wchar_t* title;
+        const wchar_t* description;
+        bool enabled;
+        UiAction action;
+    };
+    const std::array<SettingRow, 3> rows = {{
+        {
+            L"Keep screen on while agents work",
+            L"Off still keeps the PC awake; only the screen may turn off.",
+            state.keep_display_on,
+            UiAction::ToggleDisplay,
+        },
+        {
+            L"Launch AgentLatch at sign-in",
+            L"Starts monitoring automatically when you sign in to Windows.",
+            state.start_with_windows,
+            UiAction::ToggleStartup,
+        },
+        {
+            L"Show wake status notifications",
+            L"Alerts you when AgentLatch starts or stops keeping the PC awake.",
+            state.settings.notifications,
+            UiAction::ToggleNotifications,
+        },
+    }};
+
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        const int top = settings_card.top + static_cast<int>(index) * Scale(57);
+        RECT row{settings_card.left, top, settings_card.right, top + Scale(57)};
+        if (index > 0) {
+            RECT divider{row.left + Scale(16), row.top, row.right - Scale(16), row.top + 1};
+            FillRectangle(memory, divider, kBorder);
+        }
+        RECT row_title{row.left + Scale(16), row.top + Scale(5), row.right - Scale(112), row.top + Scale(30)};
+        DrawTextBlock(memory, rows[index].title, row_title, small_font_, kText);
+        RECT row_description{row.left + Scale(16), row.top + Scale(26), row.right - Scale(112), row.bottom - Scale(4)};
+        DrawTextBlock(
+            memory,
+            rows[index].description,
+            row_description,
+            small_font_,
+            kMuted,
+            DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+        RECT state_text{row.right - Scale(105), row.top, row.right - Scale(60), row.bottom};
+        DrawTextBlock(
+            memory,
+            rows[index].enabled ? L"On" : L"Off",
+            state_text,
+            tiny_semibold_font_,
+            rows[index].enabled ? kActive : kMuted,
+            DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        RECT toggle{row.right - Scale(50), row.top + Scale(18), row.right - Scale(14), row.top + Scale(39)};
+        DrawSwitch(memory, toggle, rows[index].enabled);
+        AddHitTarget(row, rows[index].action);
+    }
 
     BitBlt(target, 0, 0, width, height, memory, 0, 0, SRCCOPY);
     SelectObject(memory, old_bitmap);

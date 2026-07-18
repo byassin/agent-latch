@@ -29,6 +29,7 @@ constexpr UINT kMenuToggleStartup = 107;
 constexpr UINT kMenuSetupHooks = 108;
 constexpr UINT kMenuAbout = 109;
 constexpr UINT kMenuExit = 110;
+constexpr UINT kMenuToggleNotifications = 111;
 
 const GUID kTrayGuid = {
     0x8a9a17da,
@@ -91,6 +92,8 @@ UiAction MenuToAction(UINT command) {
             return UiAction::ToggleDisplay;
         case kMenuToggleStartup:
             return UiAction::ToggleStartup;
+        case kMenuToggleNotifications:
+            return UiAction::ToggleNotifications;
         case kMenuSetupHooks:
             return UiAction::SetupHooks;
         default:
@@ -364,6 +367,10 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
         case UiAction::ToggleStartup:
             SetStartWithWindows(!IsStartWithWindowsEnabled(), GetExecutablePath());
             break;
+        case UiAction::ToggleNotifications:
+            settings_.notifications = !settings_.notifications;
+            settings_.Save();
+            break;
         case UiAction::SetupHooks:
             LaunchHookSetup();
             break;
@@ -387,6 +394,11 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (settings_.keep_display_on ? MF_CHECKED : MF_UNCHECKED), kMenuToggleDisplay, L"Keep display on while latched");
     AppendMenuW(menu, MF_STRING | (IsStartWithWindowsEnabled() ? MF_CHECKED : MF_UNCHECKED), kMenuToggleStartup, L"Start with Windows");
+    AppendMenuW(
+        menu,
+        MF_STRING | (settings_.notifications ? MF_CHECKED : MF_UNCHECKED),
+        kMenuToggleNotifications,
+        L"Show wake status notifications");
     AppendMenuW(
         menu,
         MF_STRING,

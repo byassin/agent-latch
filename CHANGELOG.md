@@ -4,6 +4,20 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-18
+
+### Added
+
+- A dashboard and tray setting can now enable or disable Windows wake-status notifications.
+
+### Changed
+
+- Replaced the ambiguous dashboard footer with a clearly labeled Settings card, explanatory text, explicit On/Off states, and familiar switches for screen behavior, Windows sign-in startup, and notifications.
+
+### Fixed
+
+- Reused local CMake build directories no longer retain a stale user-visible version label after a project version bump.
+
 ## [0.2.0] - 2026-07-18
 
 ### Added
@@ -50,6 +64,7 @@ All notable changes to AgentLatch will be documented here.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/byassin/agent-latch/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/byassin/agent-latch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/byassin/agent-latch/releases/tag/v0.1.0

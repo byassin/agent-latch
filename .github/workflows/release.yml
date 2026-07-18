@@ -23,7 +23,7 @@ jobs:
 
       - name: Build x64
         run: |
-          cmake -S . -B build-x64 -A x64 -DAGENTLATCH_VERSION_LABEL='${{ steps.version.outputs.version }}'
+          cmake -S . -B build-x64 -A x64 -DAGENTLATCH_VERSION_LABEL_OVERRIDE='${{ steps.version.outputs.version }}'
           cmake --build build-x64 --config Release --parallel
 
       - name: Verify x64
@@ -38,7 +38,7 @@ jobs:
 
       - name: Build ARM64
         run: |
-          cmake -S . -B build-arm64 -A ARM64 -DAGENTLATCH_VERSION_LABEL='${{ steps.version.outputs.version }}'
+          cmake -S . -B build-arm64 -A ARM64 -DAGENTLATCH_VERSION_LABEL_OVERRIDE='${{ steps.version.outputs.version }}'
           cmake --build build-arm64 --config Release --parallel
 
       - name: Install pinned Inno Setup compiler

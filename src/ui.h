@@ -18,6 +18,7 @@ enum class UiAction {
     ToggleGemini,
     ToggleDisplay,
     ToggleStartup,
+    ToggleNotifications,
     SetupHooks,
 };
 

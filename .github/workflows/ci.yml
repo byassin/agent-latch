@@ -66,9 +66,9 @@ jobs:
         if: matrix.arch == 'x64'
         shell: pwsh
         run: |
-          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.0-ci.0'
-          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.0-ci.0' -OutputDirectory .\dist-test -TestBuild
-          .\tests\installer.tests.ps1 -InstallerPath .\dist-test\AgentLatch-Setup-0.2.0-ci.0-x64-test.exe
+          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.1-ci.0'
+          .\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Architecture x64 -Version '0.2.1-ci.0' -OutputDirectory .\dist-test -TestBuild
+          .\tests\installer.tests.ps1 -InstallerPath .\dist-test\AgentLatch-Setup-0.2.1-ci.0-x64-test.exe
 
       - name: Upload executable
         uses: actions/upload-artifact@v7
