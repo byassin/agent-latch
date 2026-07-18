@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include "ipc.h"
+#include "version.h"
 #include "win_util.h"
 
 #include <dwmapi.h>
@@ -156,10 +157,11 @@ bool AgentLatchApp::Initialize(bool show_window) {
     const int x = std::max(work_area.left, work_area.left + (work_area.right - work_area.left - window_width) / 2);
     const int y = std::max(work_area.top, work_area.top + (work_area.bottom - work_area.top - window_height) / 2);
 
+    const std::wstring window_title = L"AgentLatch " + std::wstring(kAgentLatchVersion);
     window_ = CreateWindowExW(
         0,
         kWindowClassName,
-        L"AgentLatch",
+        window_title.c_str(),
         style,
         x,
         y,
@@ -236,6 +238,7 @@ void AgentLatchApp::Tick(bool scan_agents) {
     const ULONGLONG now = GetTickCount64();
     latches_.Expire(now);
     if (scan_agents) {
+        settings_.RefreshIntegrationStatus();
         UpdateDetectorLatches();
     }
     ReconcilePowerState();
@@ -249,16 +252,24 @@ void AgentLatchApp::UpdateDetectorLatches() {
     const ULONGLONG now = GetTickCount64();
     for (const DetectionResult& result : detector_.Scan(now, settings_.activity_grace_seconds)) {
         const std::wstring id = DetectorId(result.provider);
-        if (settings_.IsProviderEnabled(result.provider) && result.recently_active) {
+        const DetectionMode mode = settings_.ProviderMode(result.provider);
+        const bool should_latch = mode == DetectionMode::Tasks
+                                      ? result.recently_active
+                                      : mode == DetectionMode::Open && result.running_instances > 0;
+        if (should_latch) {
+            const bool task_mode = mode == DetectionMode::Tasks;
+            const unsigned int instance_count = task_mode && result.active_task_instances > 0
+                                                    ? result.active_task_instances
+                                                    : result.running_instances;
             latches_.Upsert(
                 id,
                 result.provider,
                 LatchKind::Detector,
-                std::wstring(ProviderName(result.provider)) + L" activity",
-                result.detail,
+                std::wstring(ProviderName(result.provider)) + (task_mode ? L" task" : L" open"),
+                task_mode ? result.activity_detail : result.open_detail,
                 now,
                 0,
-                result.running_instances);
+                instance_count);
         } else {
             latches_.Remove(id);
         }
@@ -295,6 +306,12 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
         Tick(false);
         return true;
     }
+    if (fields[0] == L"SEEN" && fields.size() == 2) {
+        const Provider provider = ProviderFromString(fields[1]);
+        settings_.MarkHookSeen(provider);
+        Tick(false);
+        return true;
+    }
     if (fields[0] != L"UPSERT" || fields.size() != 8) {
         return false;
     }
@@ -307,7 +324,9 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
     ttl = std::min(ttl, kMaximumLeaseMilliseconds);
     const Provider provider = ProviderFromString(fields[2]);
     const LatchKind kind = ParseLatchKind(fields[3]);
-    if ((kind == LatchKind::Hook || kind == LatchKind::Detector) && !settings_.IsProviderEnabled(provider)) {
+    const DetectionMode mode = settings_.ProviderMode(provider);
+    if ((kind == LatchKind::Hook && mode != DetectionMode::Tasks) ||
+        (kind == LatchKind::Detector && mode == DetectionMode::Off)) {
         latches_.Remove(fields[1]);
         Tick(false);
         return true;
@@ -366,27 +385,27 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
             latches_.RemoveByKind(LatchKind::Timer);
             break;
         case UiAction::ToggleCodex:
-            settings_.SetProviderEnabled(Provider::Codex, !settings_.codex_enabled);
+            settings_.CycleProviderMode(Provider::Codex);
             latches_.RemoveByProvider(Provider::Codex);
             settings_.Save();
             break;
         case UiAction::ToggleClaude:
-            settings_.SetProviderEnabled(Provider::ClaudeCode, !settings_.claude_enabled);
+            settings_.CycleProviderMode(Provider::ClaudeCode);
             latches_.RemoveByProvider(Provider::ClaudeCode);
             settings_.Save();
             break;
         case UiAction::ToggleCursor:
-            settings_.SetProviderEnabled(Provider::Cursor, !settings_.cursor_enabled);
+            settings_.CycleProviderMode(Provider::Cursor);
             latches_.RemoveByProvider(Provider::Cursor);
             settings_.Save();
             break;
         case UiAction::ToggleOpenCode:
-            settings_.SetProviderEnabled(Provider::OpenCode, !settings_.opencode_enabled);
+            settings_.CycleProviderMode(Provider::OpenCode);
             latches_.RemoveByProvider(Provider::OpenCode);
             settings_.Save();
             break;
         case UiAction::ToggleGemini:
-            settings_.SetProviderEnabled(Provider::GeminiCli, !settings_.gemini_enabled);
+            settings_.CycleProviderMode(Provider::GeminiCli);
             latches_.RemoveByProvider(Provider::GeminiCli);
             settings_.Save();
             break;
@@ -430,7 +449,11 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (settings_.keep_display_on ? MF_CHECKED : MF_UNCHECKED), kMenuToggleDisplay, L"Keep display on while latched");
     AppendMenuW(menu, MF_STRING | (IsStartWithWindowsEnabled() ? MF_CHECKED : MF_UNCHECKED), kMenuToggleStartup, L"Start with Windows");
-    AppendMenuW(menu, MF_STRING, kMenuSetupHooks, L"Set up precise agent hooks...");
+    AppendMenuW(
+        menu,
+        MF_STRING,
+        kMenuSetupHooks,
+        L"Repair or update agent integrations...");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuAbout, L"About AgentLatch");
     AppendMenuW(menu, MF_STRING, kMenuExit, L"Exit");
@@ -467,8 +490,8 @@ void AgentLatchApp::LaunchHookSetup() {
     if (script.empty()) {
         MessageBoxW(
             window_,
-            L"The integration setup script is not next to AgentLatch.\n\nDownload the complete release package, or see docs/INTEGRATIONS.md in the repository.",
-            L"AgentLatch hook setup",
+            L"The integration repair script is not next to AgentLatch.\n\nDownload the complete release package, or see docs/INTEGRATIONS.md in the repository.",
+            L"AgentLatch integrations",
             MB_OK | MB_ICONINFORMATION);
         return;
     }
@@ -478,14 +501,17 @@ void AgentLatchApp::LaunchHookSetup() {
     const HINSTANCE result = ShellExecuteW(
         window_, L"open", L"powershell.exe", parameters.c_str(), directory.c_str(), SW_SHOWNORMAL);
     if (reinterpret_cast<INT_PTR>(result) <= 32) {
-        MessageBoxW(window_, L"Windows could not start the integration setup script.", L"AgentLatch", MB_OK | MB_ICONERROR);
+        MessageBoxW(window_, L"Windows could not start the integration repair script.", L"AgentLatch", MB_OK | MB_ICONERROR);
     }
 }
 
 void AgentLatchApp::ShowAbout() {
+    const std::wstring about_text =
+        L"AgentLatch " + std::wstring(kAgentLatchVersion) +
+        L"\n\nA lightweight, open-source, agent-aware wake manager for Windows.\n\nNo account · No telemetry · No administrator rights";
     MessageBoxW(
         window_,
-        L"AgentLatch 0.1.0\n\nA lightweight, open-source, agent-aware wake manager for Windows.\n\nNo account · No telemetry · No administrator rights",
+        about_text.c_str(),
         L"About AgentLatch",
         MB_OK | MB_ICONINFORMATION);
 }

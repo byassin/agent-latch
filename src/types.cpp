@@ -28,7 +28,7 @@ const wchar_t* ProviderName(Provider provider) {
         case Provider::OpenCode:
             return L"OpenCode";
         case Provider::GeminiCli:
-            return L"Gemini CLI";
+            return L"Google Antigravity";
         case Provider::External:
             return L"External";
     }
@@ -40,7 +40,7 @@ const wchar_t* ProviderShortName(Provider provider) {
         case Provider::ClaudeCode:
             return L"Claude";
         case Provider::GeminiCli:
-            return L"Gemini";
+            return L"Antigravity";
         default:
             return ProviderName(provider);
     }
@@ -80,7 +80,8 @@ Provider ProviderFromString(const std::wstring& value) {
     if (normalized == L"opencode" || normalized == L"open-code") {
         return Provider::OpenCode;
     }
-    if (normalized == L"gemini" || normalized == L"gemini-cli") {
+    if (normalized == L"gemini" || normalized == L"gemini-cli" || normalized == L"antigravity" ||
+        normalized == L"google-antigravity") {
         return Provider::GeminiCli;
     }
     if (normalized == L"manual") {

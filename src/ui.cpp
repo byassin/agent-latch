@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include "version.h"
 #include "win_util.h"
 
 #include <algorithm>
@@ -9,18 +10,18 @@
 namespace agent_latch {
 namespace {
 
-constexpr COLORREF kBackground = RGB(10, 15, 24);
-constexpr COLORREF kSurface = RGB(20, 27, 39);
-constexpr COLORREF kSurfaceRaised = RGB(28, 37, 51);
-constexpr COLORREF kBorder = RGB(45, 57, 75);
-constexpr COLORREF kText = RGB(241, 245, 249);
-constexpr COLORREF kMuted = RGB(148, 163, 184);
-constexpr COLORREF kFaint = RGB(100, 116, 139);
+constexpr COLORREF kBackground = RGB(11, 14, 18);
+constexpr COLORREF kSurface = RGB(20, 24, 30);
+constexpr COLORREF kSurfaceRaised = RGB(27, 32, 39);
+constexpr COLORREF kBorder = RGB(43, 49, 59);
+constexpr COLORREF kText = RGB(244, 247, 250);
+constexpr COLORREF kMuted = RGB(157, 166, 178);
+constexpr COLORREF kFaint = RGB(103, 113, 128);
 constexpr COLORREF kActive = RGB(52, 211, 153);
-constexpr COLORREF kActiveDark = RGB(18, 78, 63);
-constexpr COLORREF kIdle = RGB(100, 116, 139);
-constexpr COLORREF kBlue = RGB(96, 165, 250);
-constexpr COLORREF kBlueDark = RGB(27, 57, 96);
+constexpr COLORREF kActiveDark = RGB(18, 52, 44);
+constexpr COLORREF kIdle = RGB(112, 122, 136);
+constexpr COLORREF kBlue = RGB(104, 169, 255);
+constexpr COLORREF kBlueDark = RGB(27, 48, 75);
 constexpr COLORREF kWarning = RGB(251, 191, 36);
 
 HFONT CreateUiFont(UINT dpi, int points, int weight) {
@@ -122,16 +123,16 @@ void DrawLatchMark(HDC dc, const RECT& bounds, COLORREF color, COLORREF backgrou
 }
 
 std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
-    std::wstring text = latch.detail;
-    if (!text.empty()) {
-        text += L"  ·  ";
-    }
     if (latch.kind == LatchKind::Detector) {
-        text += L"activity detected";
-    } else {
-        text += FormatCountdown(latch.expires_at, now);
+        if (latch.label.ends_with(L" open")) {
+            return L"App open";
+        }
+        if (latch.instance_count > 1) {
+            return std::to_wstring(latch.instance_count) + L" tasks running";
+        }
+        return L"1 task running";
     }
-    return text;
+    return FormatCountdown(latch.expires_at, now);
 }
 
 UiAction ProviderAction(Provider provider) {
@@ -193,11 +194,11 @@ void DashboardRenderer::ResetFonts() {
 void DashboardRenderer::Initialize(UINT dpi) {
     ResetFonts();
     dpi_ = dpi == 0 ? 96 : dpi;
-    title_font_ = CreateUiFont(dpi_, 22, FW_SEMIBOLD);
-    heading_font_ = CreateUiFont(dpi_, 16, FW_SEMIBOLD);
+    title_font_ = CreateUiFont(dpi_, 18, FW_SEMIBOLD);
+    heading_font_ = CreateUiFont(dpi_, 13, FW_SEMIBOLD);
     body_font_ = CreateUiFont(dpi_, 10, FW_NORMAL);
     body_semibold_font_ = CreateUiFont(dpi_, 10, FW_SEMIBOLD);
-    small_font_ = CreateUiFont(dpi_, 9, FW_NORMAL);
+    small_font_ = CreateUiFont(dpi_, 8, FW_NORMAL);
     tiny_semibold_font_ = CreateUiFont(dpi_, 8, FW_SEMIBOLD);
 }
 
@@ -206,7 +207,7 @@ int DashboardRenderer::Scale(int value) const {
 }
 
 SIZE DashboardRenderer::PreferredClientSize() const {
-    return SIZE{Scale(560), Scale(830)};
+    return SIZE{Scale(476), Scale(638)};
 }
 
 void DashboardRenderer::AddHitTarget(const RECT& rectangle, UiAction action) {
@@ -231,130 +232,130 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
     HGDIOBJ old_bitmap = SelectObject(memory, bitmap);
     FillRectangle(memory, client, kBackground);
 
-    const int margin = Scale(24);
+    const int margin = Scale(20);
     const int content_right = width - margin;
 
-    RECT logo{margin, Scale(24), margin + Scale(42), Scale(66)};
-    FillRoundedRectangle(memory, logo, Scale(13), state.active ? kActiveDark : kSurfaceRaised, state.active ? kActive : kBorder);
+    RECT logo{margin, Scale(17), margin + Scale(36), Scale(53)};
+    FillRoundedRectangle(memory, logo, Scale(11), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(38, 113, 89) : kBorder);
     RECT logo_mark{logo.left + Scale(7), logo.top + Scale(6), logo.right - Scale(7), logo.bottom - Scale(6)};
     DrawLatchMark(memory, logo_mark, state.active ? kActive : kMuted, state.active ? kActiveDark : kSurfaceRaised);
 
-    RECT title{logo.right + Scale(13), Scale(21), content_right - Scale(110), Scale(52)};
+    RECT title{logo.right + Scale(11), Scale(14), logo.right + Scale(130), Scale(43)};
     DrawTextBlock(memory, L"AgentLatch", title, title_font_, kText);
-    RECT tagline{title.left, Scale(50), content_right, Scale(72)};
-    DrawTextBlock(memory, L"Your agents run. Your PC stays awake.", tagline, small_font_, kMuted);
+    RECT version_badge{title.right + Scale(7), Scale(22), title.right + Scale(119), Scale(43)};
+    DrawTextBlock(
+        memory,
+        L"v" + std::wstring(kAgentLatchVersion),
+        version_badge,
+        small_font_,
+        kFaint);
 
-    RECT hooks_button{content_right - Scale(104), Scale(29), content_right, Scale(61)};
-    FillRoundedRectangle(memory, hooks_button, Scale(16), kSurface, kBorder);
-    DrawTextBlock(memory, L"SET UP HOOKS", hooks_button, tiny_semibold_font_, kBlue, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    RECT hooks_button{content_right - Scale(96), Scale(20), content_right, Scale(50)};
+    FillRoundedRectangle(memory, hooks_button, Scale(10), kSurface, kBorder);
+    DrawTextBlock(
+        memory,
+        L"Integrations",
+        hooks_button,
+        tiny_semibold_font_,
+        kBlue,
+        DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     AddHitTarget(hooks_button, UiAction::SetupHooks);
 
-    RECT hero{margin, Scale(94), content_right, Scale(224)};
-    FillRoundedRectangle(memory, hero, Scale(18), state.active ? RGB(14, 48, 43) : kSurface, state.active ? RGB(30, 115, 91) : kBorder);
-    DrawStatusDot(memory, hero.left + Scale(27), hero.top + Scale(31), Scale(6), state.active ? kActive : kIdle);
-    RECT hero_label{hero.left + Scale(43), hero.top + Scale(16), hero.right - Scale(20), hero.top + Scale(47)};
-    const std::wstring headline = state.active
-                                      ? (L"Latched · " + std::to_wstring(state.latches.size()) +
-                                         (state.latches.size() == 1 ? L" active latch" : L" active latches"))
-                                      : L"Windows can sleep";
+    RECT hero{margin, Scale(70), content_right, Scale(138)};
+    FillRoundedRectangle(memory, hero, Scale(14), state.active ? RGB(15, 38, 33) : kSurface, state.active ? RGB(31, 91, 72) : kBorder);
+    DrawStatusDot(memory, hero.left + Scale(22), hero.top + Scale(25), Scale(5), state.active ? kActive : kIdle);
+    RECT hero_label{hero.left + Scale(37), hero.top + Scale(10), hero.right - Scale(94), hero.top + Scale(38)};
+    const std::wstring headline = state.active ? L"Keeping your PC awake" : L"Ready when your agents run";
     DrawTextBlock(memory, headline, hero_label, heading_font_, state.active ? kActive : kText);
 
-    RECT hero_detail{hero.left + Scale(24), hero.top + Scale(56), hero.right - Scale(22), hero.top + Scale(83)};
+    RECT hero_detail{hero.left + Scale(22), hero.top + Scale(38), hero.right - Scale(20), hero.bottom - Scale(7)};
     std::wstring detail;
     if (!state.power_request_available) {
-        detail = L"Windows rejected the power request. Open diagnostics for details.";
+        detail = L"Windows rejected the power request.";
     } else if (state.active) {
-        detail = state.keep_display_on ? L"System and display sleep are blocked." : L"System sleep is blocked. The display may turn off normally.";
+        detail = std::to_wstring(state.latches.size()) +
+                 (state.latches.size() == 1 ? L" latch is active" : L" latches are active");
+        detail += state.keep_display_on ? L" · display stays on" : L" · display may sleep";
     } else {
-        detail = L"AgentLatch will engage when work begins or you start a manual timer.";
+        detail = L"Windows can sleep · active tasks are monitored automatically";
     }
     DrawTextBlock(memory, detail, hero_detail, body_font_, state.power_request_available ? kMuted : kWarning);
 
     const bool has_manual = std::any_of(state.latches.begin(), state.latches.end(), [](const Latch& latch) {
         return latch.kind == LatchKind::Manual || latch.kind == LatchKind::Timer;
     });
-    RECT state_chip{hero.left + Scale(24), hero.bottom - Scale(38), hero.left + Scale(174), hero.bottom - Scale(14)};
-    FillRoundedRectangle(memory, state_chip, Scale(12), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(30, 115, 91) : kBorder);
+    RECT state_chip{hero.right - Scale(78), hero.top + Scale(13), hero.right - Scale(14), hero.top + Scale(37)};
+    FillRoundedRectangle(memory, state_chip, Scale(12), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(31, 91, 72) : kBorder);
     DrawTextBlock(
         memory,
-        state.active ? L"POWER REQUEST ACTIVE" : L"POWER REQUEST IDLE",
+        state.active ? L"ACTIVE" : L"IDLE",
         state_chip,
         tiny_semibold_font_,
         state.active ? kActive : kFaint,
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     if (has_manual) {
-        RECT release{hero.right - Scale(132), hero.bottom - Scale(43), hero.right - Scale(20), hero.bottom - Scale(10)};
-        FillRoundedRectangle(memory, release, Scale(16), kSurfaceRaised, kBorder);
-        DrawTextBlock(memory, L"Release manual", release, small_font_, kText, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        RECT release{hero.right - Scale(94), hero.bottom - Scale(27), hero.right - Scale(14), hero.bottom - Scale(7)};
+        DrawTextBlock(memory, L"Release", release, small_font_, kBlue, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         AddHitTarget(release, UiAction::ReleaseManual);
     }
 
-    RECT quick_title{margin, Scale(248), content_right, Scale(274)};
-    DrawTextBlock(memory, L"Quick latch", quick_title, body_semibold_font_, kText);
-    RECT quick_subtitle{margin + Scale(88), Scale(248), content_right, Scale(274)};
-    DrawTextBlock(memory, L"Start a manual keep-awake session", quick_subtitle, small_font_, kFaint);
+    RECT quick_title{margin, Scale(153), content_right, Scale(176)};
+    DrawTextBlock(memory, L"Keep awake for", quick_title, body_semibold_font_, kText);
 
     const std::array<std::pair<const wchar_t*, UiAction>, 4> quick_actions = {{
-        {L"30 min", UiAction::Timer30Minutes},
+        {L"30m", UiAction::Timer30Minutes},
         {L"1 hour", UiAction::Timer1Hour},
         {L"2 hours", UiAction::Timer2Hours},
-        {L"Until released", UiAction::ManualUntilReleased},
+        {L"Until stopped", UiAction::ManualUntilReleased},
     }};
-    const int gap = Scale(8);
+    const int gap = Scale(6);
     const int available_width = content_right - margin - gap * 3;
     const int button_width = available_width / 4;
     for (std::size_t index = 0; index < quick_actions.size(); ++index) {
         const int left = margin + static_cast<int>(index) * (button_width + gap);
-        RECT button{left, Scale(282), left + button_width, Scale(330)};
-        FillRoundedRectangle(memory, button, Scale(14), index == 3 ? kBlueDark : kSurface, index == 3 ? RGB(51, 91, 145) : kBorder);
-        DrawTextBlock(memory, quick_actions[index].first, button, body_semibold_font_, index == 3 ? kBlue : kText, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        RECT button{left, Scale(178), left + button_width, Scale(216)};
+        FillRoundedRectangle(memory, button, Scale(10), index == 3 ? kBlueDark : kSurface, index == 3 ? RGB(51, 85, 126) : kBorder);
+        DrawTextBlock(memory, quick_actions[index].first, button, small_font_, index == 3 ? kBlue : kText, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         AddHitTarget(button, quick_actions[index].second);
     }
 
-    RECT active_title{margin, Scale(360), content_right, Scale(388)};
-    DrawTextBlock(memory, L"Active work", active_title, body_semibold_font_, kText);
+    RECT active_title{margin, Scale(233), content_right, Scale(256)};
+    DrawTextBlock(memory, L"Running now", active_title, body_semibold_font_, kText);
 
-    RECT latch_card{margin, Scale(394), content_right, Scale(588)};
-    FillRoundedRectangle(memory, latch_card, Scale(16), kSurface, kBorder);
+    RECT latch_card{margin, Scale(258), content_right, Scale(338)};
+    FillRoundedRectangle(memory, latch_card, Scale(12), kSurface, kBorder);
     if (state.latches.empty()) {
-        RECT empty_icon{latch_card.left + Scale(22), latch_card.top + Scale(22), latch_card.left + Scale(60), latch_card.top + Scale(60)};
-        FillRoundedRectangle(memory, empty_icon, Scale(12), kSurfaceRaised, kBorder);
-        RECT empty_mark{empty_icon.left + Scale(7), empty_icon.top + Scale(6), empty_icon.right - Scale(7), empty_icon.bottom - Scale(6)};
-        DrawLatchMark(memory, empty_mark, kFaint, kSurfaceRaised);
-        RECT empty_title{empty_icon.right + Scale(14), latch_card.top + Scale(18), latch_card.right - Scale(18), latch_card.top + Scale(48)};
-        DrawTextBlock(memory, L"Nothing is holding a latch", empty_title, body_semibold_font_, kText);
-        RECT empty_text{empty_title.left, latch_card.top + Scale(45), latch_card.right - Scale(20), latch_card.top + Scale(78)};
-        DrawTextBlock(memory, L"Start an agent task or choose a timer above.", empty_text, small_font_, kMuted);
+        DrawStatusDot(memory, latch_card.left + Scale(22), latch_card.top + Scale(40), Scale(4), kFaint);
+        RECT empty_title{latch_card.left + Scale(36), latch_card.top + Scale(13), latch_card.right - Scale(16), latch_card.top + Scale(39)};
+        DrawTextBlock(memory, L"No active tasks", empty_title, body_semibold_font_, kText);
+        RECT empty_text{empty_title.left, latch_card.top + Scale(37), latch_card.right - Scale(16), latch_card.bottom - Scale(8)};
+        DrawTextBlock(memory, L"Monitoring Codex and your enabled agent tools", empty_text, small_font_, kMuted);
     } else {
-        const std::size_t visible_count = std::min<std::size_t>(3, state.latches.size());
+        const std::size_t visible_count = std::min<std::size_t>(2, state.latches.size());
         for (std::size_t index = 0; index < visible_count; ++index) {
             const Latch& latch = state.latches[index];
-            const int top = latch_card.top + Scale(9) + static_cast<int>(index) * Scale(58);
+            const int first_top = visible_count == 1 ? latch_card.top + Scale(20) : latch_card.top;
+            const int top = first_top + static_cast<int>(index) * Scale(40);
             if (index > 0) {
-                RECT divider{latch_card.left + Scale(20), top - Scale(3), latch_card.right - Scale(20), top - Scale(2)};
+                RECT divider{latch_card.left + Scale(16), top, latch_card.right - Scale(16), top + 1};
                 FillRectangle(memory, divider, kBorder);
             }
-            DrawStatusDot(memory, latch_card.left + Scale(26), top + Scale(24), Scale(5), ProviderColor(latch.provider));
-            RECT row_title{latch_card.left + Scale(44), top + Scale(5), latch_card.right - Scale(78), top + Scale(29)};
+            DrawStatusDot(memory, latch_card.left + Scale(22), top + Scale(20), Scale(4), ProviderColor(latch.provider));
+            RECT row_title{latch_card.left + Scale(36), top + Scale(5), latch_card.right - Scale(120), top + Scale(35)};
             DrawTextBlock(memory, latch.label, row_title, body_semibold_font_, kText);
-            RECT row_detail{row_title.left, top + Scale(28), latch_card.right - Scale(18), top + Scale(49)};
-            DrawTextBlock(memory, LatchSecondaryText(latch, state.now), row_detail, small_font_, kMuted);
-            if (latch.instance_count > 1) {
-                RECT count_badge{latch_card.right - Scale(62), top + Scale(10), latch_card.right - Scale(18), top + Scale(37)};
-                FillRoundedRectangle(memory, count_badge, Scale(13), kSurfaceRaised, kBorder);
-                DrawTextBlock(memory, L"×" + std::to_wstring(latch.instance_count), count_badge, small_font_, kMuted, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-            }
+            RECT row_detail{latch_card.right - Scale(126), top + Scale(5), latch_card.right - Scale(16), top + Scale(35)};
+            DrawTextBlock(memory, LatchSecondaryText(latch, state.now), row_detail, small_font_, kMuted, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
-        if (state.latches.size() > 3) {
-            RECT more{latch_card.left + Scale(20), latch_card.bottom - Scale(27), latch_card.right - Scale(20), latch_card.bottom - Scale(7)};
-            DrawTextBlock(memory, L"+ " + std::to_wstring(state.latches.size() - 3) + L" more active", more, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        if (state.latches.size() > 2) {
+            RECT more{latch_card.right - Scale(90), latch_card.bottom - Scale(21), latch_card.right - Scale(16), latch_card.bottom - Scale(4)};
+            DrawTextBlock(memory, L"+" + std::to_wstring(state.latches.size() - 2) + L" more", more, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         }
     }
 
-    RECT automation_title{margin, Scale(614), content_right, Scale(640)};
-    DrawTextBlock(memory, L"Agent awareness", automation_title, body_semibold_font_, kText);
-    RECT automation_hint{margin + Scale(116), Scale(614), content_right, Scale(640)};
-    DrawTextBlock(memory, L"Click to enable or pause a provider", automation_hint, small_font_, kFaint);
+    RECT automation_title{margin, Scale(355), content_right, Scale(380)};
+    DrawTextBlock(memory, L"Agent tracking", automation_title, body_semibold_font_, kText);
+    RECT automation_hint{margin + Scale(132), Scale(355), content_right, Scale(380)};
+    DrawTextBlock(memory, L"Click a row to change its mode", automation_hint, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
 
     static constexpr std::array<Provider, 5> providers = {
         Provider::Codex,
@@ -363,35 +364,48 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         Provider::OpenCode,
         Provider::GeminiCli,
     };
+    RECT provider_list{margin, Scale(382), content_right, Scale(552)};
+    FillRoundedRectangle(memory, provider_list, Scale(12), kSurface, kBorder);
     for (std::size_t index = 0; index < providers.size(); ++index) {
         const Provider provider = providers[index];
-        const bool enabled = state.settings.IsProviderEnabled(provider);
-        const int row = index < 3 ? 0 : 1;
-        const int column = index < 3 ? static_cast<int>(index) : static_cast<int>(index - 3);
-        const int button_width_provider = row == 0 ? Scale(160) : Scale(244);
-        const int left = margin + column * (button_width_provider + Scale(8));
-        const int top = Scale(650) + row * Scale(48);
-        RECT provider_button{left, top, left + button_width_provider, top + Scale(39)};
-        FillRoundedRectangle(memory, provider_button, Scale(14), enabled ? kSurfaceRaised : kSurface, enabled ? ProviderColor(provider) : kBorder);
-        DrawStatusDot(memory, provider_button.left + Scale(18), provider_button.top + Scale(19), Scale(4), enabled ? ProviderColor(provider) : kFaint);
-        RECT provider_text{provider_button.left + Scale(31), provider_button.top, provider_button.right - Scale(12), provider_button.bottom};
-        DrawTextBlock(memory, ProviderShortName(provider), provider_text, body_semibold_font_, enabled ? kText : kFaint);
-        AddHitTarget(provider_button, ProviderAction(provider));
+        const DetectionMode mode = state.settings.ProviderMode(provider);
+        const bool enabled = mode != DetectionMode::Off;
+        const bool running = std::any_of(state.latches.begin(), state.latches.end(), [provider](const Latch& latch) {
+            return latch.provider == provider;
+        });
+        const COLORREF accent = running ? ProviderColor(provider) : enabled ? kMuted : kFaint;
+        const int top = provider_list.top + static_cast<int>(index) * Scale(34);
+        RECT provider_row{provider_list.left, top, provider_list.right, top + Scale(34)};
+        if (index > 0) {
+            RECT divider{provider_list.left + Scale(36), top, provider_list.right - Scale(14), top + 1};
+            FillRectangle(memory, divider, kBorder);
+        }
+        DrawStatusDot(memory, provider_row.left + Scale(18), provider_row.top + Scale(17), Scale(3), accent);
+        RECT provider_text{provider_row.left + Scale(31), provider_row.top, provider_row.right - Scale(140), provider_row.bottom};
+        DrawTextBlock(memory, ProviderShortName(provider), provider_text, small_font_, enabled ? kText : kFaint);
+        if (running) {
+            RECT running_text{provider_row.right - Scale(136), provider_row.top, provider_row.right - Scale(70), provider_row.bottom};
+            DrawTextBlock(memory, L"RUNNING", running_text, tiny_semibold_font_, ProviderColor(provider), DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        }
+        RECT mode_pill{provider_row.right - Scale(62), provider_row.top + Scale(7), provider_row.right - Scale(12), provider_row.bottom - Scale(7)};
+        FillRoundedRectangle(memory, mode_pill, Scale(10), enabled ? kSurfaceRaised : kBackground, kBorder);
+        DrawTextBlock(memory, DetectionModeLabel(mode), mode_pill, tiny_semibold_font_, enabled ? kMuted : kFaint, DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        AddHitTarget(provider_row, ProviderAction(provider));
     }
 
-    RECT footer{margin, Scale(758), content_right, Scale(812)};
-    FillRoundedRectangle(memory, footer, Scale(14), kSurface, kBorder);
+    RECT footer{margin, Scale(570), content_right, Scale(616)};
+    FillRoundedRectangle(memory, footer, Scale(12), kSurface, kBorder);
     const int half = (footer.right - footer.left) / 2;
     RECT display_area{footer.left, footer.top, footer.left + half, footer.bottom};
     RECT startup_area{footer.left + half, footer.top, footer.right, footer.bottom};
-    RECT footer_divider{footer.left + half, footer.top + Scale(10), footer.left + half + 1, footer.bottom - Scale(10)};
+    RECT footer_divider{footer.left + half, footer.top + Scale(9), footer.left + half + 1, footer.bottom - Scale(9)};
     FillRectangle(memory, footer_divider, kBorder);
-    DrawStatusDot(memory, display_area.left + Scale(20), display_area.top + Scale(27), Scale(5), state.keep_display_on ? kBlue : kFaint);
-    RECT display_text{display_area.left + Scale(34), display_area.top + Scale(4), display_area.right - Scale(8), display_area.bottom};
-    DrawTextBlock(memory, state.keep_display_on ? L"Display stays on" : L"Display may sleep", display_text, body_semibold_font_, state.keep_display_on ? kText : kMuted);
-    DrawStatusDot(memory, startup_area.left + Scale(20), startup_area.top + Scale(27), Scale(5), state.start_with_windows ? kActive : kFaint);
-    RECT startup_text{startup_area.left + Scale(34), startup_area.top + Scale(4), startup_area.right - Scale(8), startup_area.bottom};
-    DrawTextBlock(memory, state.start_with_windows ? L"Starts with Windows" : L"Start manually", startup_text, body_semibold_font_, state.start_with_windows ? kText : kMuted);
+    DrawStatusDot(memory, display_area.left + Scale(18), display_area.top + Scale(23), Scale(4), state.keep_display_on ? kBlue : kFaint);
+    RECT display_text{display_area.left + Scale(30), display_area.top, display_area.right - Scale(8), display_area.bottom};
+    DrawTextBlock(memory, state.keep_display_on ? L"Display on" : L"Display may sleep", display_text, small_font_, state.keep_display_on ? kText : kMuted);
+    DrawStatusDot(memory, startup_area.left + Scale(18), startup_area.top + Scale(23), Scale(4), state.start_with_windows ? kActive : kFaint);
+    RECT startup_text{startup_area.left + Scale(30), startup_area.top, startup_area.right - Scale(8), startup_area.bottom};
+    DrawTextBlock(memory, state.start_with_windows ? L"Starts with Windows" : L"Start at sign-in", startup_text, small_font_, state.start_with_windows ? kText : kMuted);
     AddHitTarget(display_area, UiAction::ToggleDisplay);
     AddHitTarget(startup_area, UiAction::ToggleStartup);
 

@@ -4,7 +4,7 @@ Thanks for helping make unattended agent work safer and more dependable on Windo
 
 ## Development setup
 
-Install Visual Studio 2022 Build Tools with Desktop development with C++, plus CMake 3.24 or newer. Then run:
+Install Visual Studio 2022 Build Tools with Desktop development with C++, plus CMake 3.24 or newer. Install Inno Setup 7 when changing or verifying the Windows installer. Then run:
 
 ```powershell
 .\scripts\build.ps1

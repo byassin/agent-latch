@@ -1,12 +1,12 @@
 #include <windows.h>
 #include "resource.h"
 
-1 RT_MANIFEST "app.manifest"
-IDI_AGENTLATCH ICON "app.ico"
+1 RT_MANIFEST "@CMAKE_CURRENT_SOURCE_DIR@/resources/app.manifest"
+IDI_AGENTLATCH ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/app.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION 0,2,0,0
+ PRODUCTVERSION 0,2,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -23,12 +23,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "AgentLatch contributors\0"
             VALUE "FileDescription", "Agent-aware wake manager for Windows\0"
-            VALUE "FileVersion", "0.1.0\0"
+            VALUE "FileVersion", "@AGENTLATCH_VERSION_LABEL@\0"
             VALUE "InternalName", "AgentLatch\0"
             VALUE "LegalCopyright", "Copyright (c) 2026 AgentLatch contributors\0"
             VALUE "OriginalFilename", "AgentLatch.exe\0"
             VALUE "ProductName", "AgentLatch\0"
-            VALUE "ProductVersion", "0.1.0\0"
+            VALUE "ProductVersion", "@AGENTLATCH_VERSION_LABEL@\0"
         END
     END
     BLOCK "VarFileInfo"
