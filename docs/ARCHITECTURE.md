@@ -17,7 +17,7 @@ Local tools ───── renewable lease CLI ───┘            └─�
 |---|---|
 | `AgentDetector` | Reads Codex desktop task lifecycle markers, enumerates known agent roots, distinguishes desktop shells from agent CLIs, follows descendants, and samples eligible CPU/I/O activity. |
 | `HookBridge` | Reads bounded JSON hook input, extracts lifecycle identity, and converts events to lease operations. |
-| `LatchRegistry` | Owns independent manual, timer, detector, hook, and external latches; expires bounded leases. |
+| `LatchRegistry` | Owns independent detector, hook, and external latches; expires bounded leases. |
 | `PowerRequest` | Creates and reconciles Windows `PowerSetRequest` system/display requirements. |
 | `AgentLatchApp` | Hosts the message loop, tray icon, single-instance IPC, settings, and reconciliation cycle. |
 | `DashboardRenderer` | Paints the DPI-aware interface and hit targets with native GDI. |
@@ -50,7 +50,7 @@ The Windows setup executable is per-user and uses one stable production AppId so
 
 ## IPC and trust boundary
 
-The first AgentLatch instance owns a named mutex and hidden/control window. Later invocations locate that window and send a bounded, tab-delimited `WM_COPYDATA` message. Message fields are sanitized, payload size is capped, TTLs are capped at 24 hours, and no network listener is opened.
+The first AgentLatch instance owns a named mutex and hidden/control window. Later invocations locate that window and send a bounded, tab-delimited `WM_COPYDATA` message. Message fields are sanitized, payload size is capped, TTLs are capped at 24 hours, and no network listener is opened. The public lease API remains available for local agent tools and orchestrators even though AgentLatch intentionally exposes no generic keep-awake timer controls.
 
 AgentLatch assumes other processes running as the same signed-in user are within the local trust boundary. It does not accept remote requests.
 
