@@ -32,11 +32,13 @@ The request blocks automatic idle sleep. It does not block an explicit user slee
 
 The process detector scans every two seconds. A known agent root owns its descendant process tree. Each provider has an independent mode:
 
-- **Tasks** accepts native Codex desktop lifecycle state, lifecycle-hook latches, and recent activity from task-capable CLI process trees.
+- **Tasks** accepts native Codex desktop lifecycle state, lifecycle-hook latches, and recent activity from task-capable CLI process trees when the provider has no authoritative managed integration.
 - **Open** accepts process presence, including desktop shells.
 - **Off** accepts neither.
 
 Electron desktop applications are presence-capable but not activity-capable because background renderers, update checks, and language servers remain busy while the agent is idle. This prevents Codex desktop, Claude desktop, Cursor, and Antigravity from creating false task latches. Codex desktop is the exception only in signal source: AgentLatch scans recent local session files for the latest explicit `task_started` or `task_complete` marker instead of inferring work from process activity. The packaged `ChatGPT.exe` shell is classified as Codex only when it runs from the `OpenAI.Codex` Windows app package. A configurable grace period covers short CLI thinking, network, or orchestration gaps.
+
+For a normal installed copy, the integration installer records that Claude lifecycle hooks are managed. In that state, Claude hooks are authoritative in **Tasks** mode and the generic Claude CLI activity result is suppressed. This prevents transient daemons, background PTY hosts, and resumed helper sessions from extending a latch after Claude has reported completion or its visible CLI has closed. **Open** mode deliberately continues to use process presence. A portable copy with no managed-hook status retains conservative CLI activity as a fallback.
 
 The Codex session scan is read-only and bounded. Every five seconds it recursively discovers JSONL files across the full local session tree, then checks at most the 64 most recently written sessions plus any cached session that was previously active. This allows a task resumed from an older date folder to remain visible. Files last written before the current Codex desktop process generation are rejected, with a small timestamp tolerance, so an orphaned `task_started` marker from a previous app run cannot create a stale latch. The scanner reads backward in 64 KiB blocks until it finds the latest lifecycle marker, and caches results by path, size, and write time. Each eligible session whose latest marker is `task_started` contributes one active task instance; a later `task_complete` releases it on the next scan.
 
@@ -44,7 +46,7 @@ Hooks are more precise because they name individual sessions, conversations, and
 
 ## Integration and installer safety
 
-Provider configuration updates are additive and idempotent. The integration script parses the existing JSON, removes stale AgentLatch commands for the same provider, preserves unrelated entries, writes a timestamped sibling backup, and replaces the destination through a temporary file.
+Provider configuration updates are additive and idempotent. The integration script parses the existing JSON, removes stale AgentLatch commands for the same provider, preserves unrelated entries, writes a timestamped sibling backup, and replaces the destination through a temporary file. For Codex and Claude it also stores per-user integration-expected, installed-command, and hook-seen health values under `HKCU\Software\AgentLatch`.
 
 The Windows setup executable is per-user and uses one stable production AppId so normal upgrades replace the previous version. Before copying files it asks the existing AgentLatch process to exit, then installs integrations automatically and records standard startup and uninstall entries. Setup integration tests are compiled with a random, non-production AppId and are refused by the test harness without a matching marker file, preventing tests from overwriting a real installation's uninstall registration.
 

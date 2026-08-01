@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installer = Join-Path $repoRoot 'scripts\install-integrations.ps1'
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("AgentLatchIntegrationTests-" + [guid]::NewGuid().ToString('N'))
+$statusKey = 'HKCU:\Software\AgentLatch-Test-' + [guid]::NewGuid().ToString('N')
 
 function Write-Utf8Json {
     param([string]$Path, $Object)
@@ -116,7 +117,16 @@ try {
         }
     })
 
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot
+    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
+    $integrationStatus = Get-ItemProperty -Path $statusKey
+    if ($integrationStatus.IntegrationExpectedCodex -ne 1 -or
+        $integrationStatus.IntegrationExpectedClaude -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$integrationStatus.IntegrationCommandCodex) -or
+        [string]::IsNullOrWhiteSpace([string]$integrationStatus.IntegrationCommandClaude) -or
+        $integrationStatus.HookSeenCodex -ne 0 -or
+        $integrationStatus.HookSeenClaude -ne 0) {
+        throw 'Fresh install did not initialize Codex and Claude integration health.'
+    }
     $first = @{}
     foreach ($entry in @(
         @{ Name = 'codex'; Path = $codexPath; Provider = 'codex'; Events = 7 },
@@ -142,7 +152,13 @@ try {
         throw 'The existing Antigravity hook was not preserved.'
     }
 
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot
+    New-ItemProperty -Path $statusKey -Name 'HookSeenCodex' -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $statusKey -Name 'HookSeenClaude' -Value 1 -PropertyType DWord -Force | Out-Null
+    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
+    $integrationStatus = Get-ItemProperty -Path $statusKey
+    if ($integrationStatus.HookSeenCodex -ne 1 -or $integrationStatus.HookSeenClaude -ne 1) {
+        throw 'Idempotent reinstall reset healthy hook-seen status without changing commands.'
+    }
     foreach ($entry in @(
         @{ Name = 'codex'; Path = $codexPath; Provider = 'codex' },
         @{ Name = 'claude'; Path = $claudePath; Provider = 'claude' },
@@ -157,7 +173,14 @@ try {
         throw 'Antigravity installer was not idempotent.'
     }
 
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -Uninstall
+    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey -Uninstall
+    $integrationStatus = Get-ItemProperty -Path $statusKey
+    if ($integrationStatus.IntegrationExpectedCodex -ne 0 -or
+        $integrationStatus.IntegrationExpectedClaude -ne 0 -or
+        $null -ne $integrationStatus.PSObject.Properties['IntegrationCommandCodex'] -or
+        $null -ne $integrationStatus.PSObject.Properties['IntegrationCommandClaude']) {
+        throw 'Uninstall did not clear Codex and Claude integration expectations.'
+    }
     foreach ($entry in @(
         @{ Name = 'codex'; Path = $codexPath; Provider = 'codex' },
         @{ Name = 'claude'; Path = $claudePath; Provider = 'claude' },
@@ -184,6 +207,7 @@ try {
     if ($backups.Count -lt 4) { throw 'Expected backups were not created.' }
     Write-Host 'Integration installer tests passed.'
 } finally {
+    Remove-Item -LiteralPath $statusKey -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $testRoot) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }

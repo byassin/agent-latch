@@ -4,6 +4,17 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-01
+
+### Fixed
+
+- Claude Code helper daemons and background PTY processes that survive after the visible CLI closes no longer renew a false task latch.
+
+### Changed
+
+- Managed Claude lifecycle hooks are now authoritative in **Tasks** mode. **Open** mode remains presence-based, and portable installs without managed hooks retain conservative CLI activity detection.
+- Claude integration health is persisted alongside Codex integration health so AgentLatch can distinguish a managed installation from a process-only portable copy.
+
 ## [0.2.2] - 2026-07-31
 
 ### Fixed
@@ -77,7 +88,8 @@ All notable changes to AgentLatch will be documented here.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/byassin/agent-latch/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/byassin/agent-latch/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/byassin/agent-latch/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/byassin/agent-latch/compare/v0.1.0...v0.2.0

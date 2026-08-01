@@ -74,6 +74,8 @@ bool Settings::Load() {
     activity_grace_seconds = std::clamp<DWORD>(ReadDword(key, L"ActivityGraceSeconds", 180), 30, 1800);
     codex_integration_expected = ReadDword(key, L"IntegrationExpectedCodex", 0) != 0;
     codex_hook_seen = ReadDword(key, L"HookSeenCodex", 0) != 0;
+    claude_integration_expected = ReadDword(key, L"IntegrationExpectedClaude", 0) != 0;
+    claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0) != 0;
     RegCloseKey(key);
     return true;
 }
@@ -120,6 +122,8 @@ bool Settings::RefreshIntegrationStatus() {
     if (result == ERROR_FILE_NOT_FOUND) {
         codex_integration_expected = false;
         codex_hook_seen = false;
+        claude_integration_expected = false;
+        claude_hook_seen = false;
         return true;
     }
     if (result != ERROR_SUCCESS) {
@@ -127,15 +131,23 @@ bool Settings::RefreshIntegrationStatus() {
     }
     codex_integration_expected = ReadDword(key, L"IntegrationExpectedCodex", 0) != 0;
     codex_hook_seen = ReadDword(key, L"HookSeenCodex", 0) != 0;
+    claude_integration_expected = ReadDword(key, L"IntegrationExpectedClaude", 0) != 0;
+    claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0) != 0;
     RegCloseKey(key);
     return true;
 }
 
 bool Settings::MarkHookSeen(Provider provider) {
-    if (provider != Provider::Codex) {
+    const wchar_t* value_name = nullptr;
+    if (provider == Provider::Codex) {
+        codex_hook_seen = true;
+        value_name = L"HookSeenCodex";
+    } else if (provider == Provider::ClaudeCode) {
+        claude_hook_seen = true;
+        value_name = L"HookSeenClaude";
+    } else {
         return true;
     }
-    codex_hook_seen = true;
     HKEY key = nullptr;
     DWORD disposition = 0;
     if (RegCreateKeyExW(
@@ -150,13 +162,18 @@ bool Settings::MarkHookSeen(Provider provider) {
             &disposition) != ERROR_SUCCESS) {
         return false;
     }
-    const bool result = WriteDword(key, L"HookSeenCodex", 1);
+    const bool result = WriteDword(key, value_name, 1);
     RegCloseKey(key);
     return result;
 }
 
 bool Settings::CodexIntegrationPending() const {
     return codex_mode == DetectionMode::Tasks && codex_integration_expected && !codex_hook_seen;
+}
+
+bool Settings::UseProcessActivityFallback(Provider provider) const {
+    return provider != Provider::ClaudeCode || claude_mode != DetectionMode::Tasks ||
+           !claude_integration_expected;
 }
 
 bool Settings::IsProviderEnabled(Provider provider) const {

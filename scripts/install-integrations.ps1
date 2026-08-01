@@ -10,7 +10,9 @@ param(
 
     [string]$ConfigRoot = $HOME,
 
-    [string]$InstallMarkerPath
+    [string]$InstallMarkerPath,
+
+    [string]$IntegrationStatusKeyOverride
 )
 
 $ErrorActionPreference = 'Stop'
@@ -349,22 +351,41 @@ if ($providers -contains 'Antigravity') {
 }
 
 $userProfile = [System.IO.Path]::GetFullPath([Environment]::GetFolderPath('UserProfile'))
-if ([string]::Equals($ConfigRoot.TrimEnd('\'), $userProfile.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) -and
-    $providers -contains 'Codex') {
-    $statusKey = 'HKCU:\Software\AgentLatch'
-    if ($PSCmdlet.ShouldProcess($statusKey, 'Update Codex integration health status')) {
-        New-Item -Path $statusKey -Force | Out-Null
-        if ($Uninstall) {
-            New-ItemProperty -Path $statusKey -Name 'IntegrationExpectedCodex' -Value 0 -PropertyType DWord -Force | Out-Null
-            Remove-ItemProperty -Path $statusKey -Name 'IntegrationCommandCodex' -ErrorAction SilentlyContinue
-        } else {
-            $codexCommand = "$quotedExecutable --hook codex"
-            $previousCommand = [string](Get-ItemPropertyValue -Path $statusKey -Name 'IntegrationCommandCodex' -ErrorAction SilentlyContinue)
-            if (-not [string]::Equals($previousCommand, $codexCommand, [StringComparison]::Ordinal)) {
-                New-ItemProperty -Path $statusKey -Name 'HookSeenCodex' -Value 0 -PropertyType DWord -Force | Out-Null
+$hasStatusKeyOverride = -not [string]::IsNullOrWhiteSpace($IntegrationStatusKeyOverride)
+if ($hasStatusKeyOverride -or
+    [string]::Equals($ConfigRoot.TrimEnd('\'), $userProfile.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+    $statusKey = if ($hasStatusKeyOverride) { $IntegrationStatusKeyOverride } else { 'HKCU:\Software\AgentLatch' }
+    foreach ($integration in @(
+        @{ Name = 'Codex'; ProviderKey = 'codex' },
+        @{ Name = 'Claude'; ProviderKey = 'claude' }
+    )) {
+        if ($providers -contains $integration.Name -and
+            $PSCmdlet.ShouldProcess($statusKey, "Update $($integration.Name) integration health status")) {
+            if (-not (Test-Path -LiteralPath $statusKey)) {
+                New-Item -Path $statusKey -Force | Out-Null
             }
-            New-ItemProperty -Path $statusKey -Name 'IntegrationExpectedCodex' -Value 1 -PropertyType DWord -Force | Out-Null
-            New-ItemProperty -Path $statusKey -Name 'IntegrationCommandCodex' -Value $codexCommand -PropertyType String -Force | Out-Null
+            $expectedValueName = "IntegrationExpected$($integration.Name)"
+            $commandValueName = "IntegrationCommand$($integration.Name)"
+            $hookSeenValueName = "HookSeen$($integration.Name)"
+            if ($Uninstall) {
+                New-ItemProperty -Path $statusKey -Name $expectedValueName -Value 0 -PropertyType DWord -Force | Out-Null
+                Remove-ItemProperty -Path $statusKey -Name $commandValueName -ErrorAction SilentlyContinue
+            } else {
+                $integrationCommand = "$quotedExecutable --hook $($integration.ProviderKey)"
+                $previousCommand = ''
+                $existingStatus = Get-ItemProperty -Path $statusKey -ErrorAction SilentlyContinue
+                if ($null -ne $existingStatus) {
+                    $existingCommandProperty = $existingStatus.PSObject.Properties[$commandValueName]
+                    if ($null -ne $existingCommandProperty) {
+                        $previousCommand = [string]$existingCommandProperty.Value
+                    }
+                }
+                if (-not [string]::Equals($previousCommand, $integrationCommand, [StringComparison]::Ordinal)) {
+                    New-ItemProperty -Path $statusKey -Name $hookSeenValueName -Value 0 -PropertyType DWord -Force | Out-Null
+                }
+                New-ItemProperty -Path $statusKey -Name $expectedValueName -Value 1 -PropertyType DWord -Force | Out-Null
+                New-ItemProperty -Path $statusKey -Name $commandValueName -Value $integrationCommand -PropertyType String -Force | Out-Null
+            }
         }
     }
 }

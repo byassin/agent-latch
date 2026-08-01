@@ -2,7 +2,7 @@
 
 AgentLatch gives every provider one of three modes:
 
-1. **Tasks** (default) latches only for native Codex lifecycle state, lifecycle-hook work, or conservative agent CLI activity.
+1. **Tasks** (default) latches only for native Codex lifecycle state, lifecycle-hook work, or conservative agent CLI activity when no authoritative managed integration exists.
 2. **Open** latches whenever the selected app or CLI process exists.
 3. **Off** ignores that provider and releases its automatic latches.
 
@@ -73,6 +73,8 @@ Configured events include prompt submission, tool use, subagent start/stop, stop
 ```text
 "C:\path\to\AgentLatch.exe" --hook claude
 ```
+
+For a normal setup installation, these managed hooks are authoritative in **Tasks** mode. AgentLatch does not treat CPU or I/O from Claude's surviving transient daemon, background PTY host, or resumed helper processes as proof that a task is still running. **Open** mode still latches on Claude process presence. Portable copies without managed hooks retain conservative Claude CLI activity detection as a fallback; run the integration installer to opt into precise lifecycle behavior.
 
 See the official [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks).
 

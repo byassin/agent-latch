@@ -3,7 +3,7 @@
   <assemblyIdentity
     name="AgentLatch"
     processorArchitecture="*"
-    version="0.2.2.0"
+    version="0.2.3.0"
     type="win32" />
   <description>Agent-aware wake manager for Windows</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
