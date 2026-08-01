@@ -3,6 +3,7 @@
 #include "ipc.h"
 #include "latch_registry.h"
 #include "power_request.h"
+#include "settings.h"
 #include "types.h"
 
 #include <windows.h>
@@ -158,6 +159,23 @@ int RunSelfTests() {
     }
     if (!RunAgentDetectorSelfTests()) {
         return 53;
+    }
+
+    Settings managed_claude;
+    managed_claude.claude_mode = DetectionMode::Tasks;
+    managed_claude.claude_integration_expected = true;
+    if (managed_claude.UseProcessActivityFallback(Provider::ClaudeCode) ||
+        !managed_claude.UseProcessActivityFallback(Provider::Codex)) {
+        return 54;
+    }
+    managed_claude.claude_integration_expected = false;
+    if (!managed_claude.UseProcessActivityFallback(Provider::ClaudeCode)) {
+        return 55;
+    }
+    managed_claude.claude_integration_expected = true;
+    managed_claude.claude_mode = DetectionMode::Open;
+    if (!managed_claude.UseProcessActivityFallback(Provider::ClaudeCode)) {
+        return 56;
     }
 
     PowerRequest request;

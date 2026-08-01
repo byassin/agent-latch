@@ -23,12 +23,15 @@ struct Settings {
     DWORD activity_grace_seconds{180};
     bool codex_integration_expected{false};
     bool codex_hook_seen{false};
+    bool claude_integration_expected{false};
+    bool claude_hook_seen{false};
 
     bool Load();
     bool Save() const;
     bool RefreshIntegrationStatus();
     bool MarkHookSeen(Provider provider);
     bool CodexIntegrationPending() const;
+    bool UseProcessActivityFallback(Provider provider) const;
     bool IsProviderEnabled(Provider provider) const;
     DetectionMode ProviderMode(Provider provider) const;
     void SetProviderMode(Provider provider, DetectionMode mode);

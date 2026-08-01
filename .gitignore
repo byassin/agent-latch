@@ -1,5 +1,7 @@
 /build*/
 /dist/
+/dist-*/
+/.worktrees/
 /.vs/
 /.idea/
 *.user

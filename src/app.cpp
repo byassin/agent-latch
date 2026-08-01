@@ -242,7 +242,7 @@ void AgentLatchApp::UpdateDetectorLatches() {
         const std::wstring id = DetectorId(result.provider);
         const DetectionMode mode = settings_.ProviderMode(result.provider);
         const bool should_latch = mode == DetectionMode::Tasks
-                                      ? result.recently_active
+                                      ? result.recently_active && settings_.UseProcessActivityFallback(result.provider)
                                       : mode == DetectionMode::Open && result.running_instances > 0;
         if (should_latch) {
             const bool task_mode = mode == DetectionMode::Tasks;

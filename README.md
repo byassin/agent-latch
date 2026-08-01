@@ -29,7 +29,7 @@ AgentLatch uses a Windows power request. It does not jiggle the mouse, synthesiz
 | Provider | Tasks mode | Open mode | Lifecycle hooks |
 |---|---|---|---|
 | Codex | Native desktop lifecycle + hooks/CLI activity | Desktop app or CLI | Desktop tasks; CLI sessions and subagents |
-| Claude Code | Hooks + CLI activity | Desktop app or CLI | Sessions and subagents |
+| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions and subagents |
 | Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
 | OpenCode | CLI activity | CLI process | External lease API |
 | Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
@@ -90,7 +90,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.2
+.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.3
 ```
 
 ## Design principles
