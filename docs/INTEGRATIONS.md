@@ -39,9 +39,9 @@ The setup executable and repair script both:
 - parse and preserve the existing JSON object;
 - replace stale AgentLatch commands from older installation paths;
 - append only missing AgentLatch commands;
-- writes no duplicate entries when run again;
-- creates a timestamped sibling backup before every changed file;
-- writes through a temporary file; and
+- write no duplicate entries when run again;
+- create a timestamped sibling backup before every changed file;
+- write through a temporary file; and
 - never requires administrator rights.
 
 The normal Windows uninstaller removes these entries automatically while leaving every unrelated hook untouched.

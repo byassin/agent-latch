@@ -38,9 +38,10 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 
 ## Install
 
-1. Download `AgentLatch-Setup-<version>-x64.exe` from the latest release.
-2. Double-click the setup executable.
-3. Choose whether AgentLatch should start with Windows, then select **Install**.
+1. Open the [latest GitHub release](https://github.com/byassin/agent-latch/releases/latest).
+2. Download the x64 setup executable for an Intel or AMD Windows PC, or the ARM64 setup executable for a Windows on Arm PC.
+3. Double-click the setup executable.
+4. Choose whether AgentLatch should start with Windows, then select **Install**.
 
 Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. The exact stable version is always visible beside the AgentLatch name in the dashboard and in the window title.
 
@@ -49,6 +50,17 @@ Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are in
 Codex desktop task detection is native and automatic: AgentLatch reads the local start/complete lifecycle stream that Codex already maintains. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
 
 Windows may display a SmartScreen warning until project releases are Authenticode-signed.
+
+### Verify a download
+
+Each release includes a `.sha256` sidecar beside every setup executable and a combined `SHA256SUMS.txt`. Compare the installer hash with either published value before running it:
+
+```powershell
+Get-FileHash .\AgentLatch-Setup-0.2.3-x64.exe -Algorithm SHA256
+Get-Content .\AgentLatch-Setup-0.2.3-x64.exe.sha256
+```
+
+Replace the version and architecture in those filenames with the asset you downloaded.
 
 ## Command-line lease API
 
