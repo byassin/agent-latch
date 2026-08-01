@@ -4,12 +4,10 @@
 
 #include <algorithm>
 #include <array>
-#include <ctime>
 #include <cwchar>
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <sstream>
 #include <unordered_set>
 
@@ -19,6 +17,9 @@ namespace {
 constexpr ULONGLONG kMinimumCpuDelta = 250000;  // 25 ms in 100-nanosecond units.
 constexpr ULONGLONG kMinimumIoDelta = 16 * 1024;
 constexpr std::size_t kMaximumRecentCodexSessions = 64;
+constexpr ULONGLONG kCodexDiscoveryIntervalMilliseconds = 5000;
+constexpr ULONGLONG kFileTimeTicksPerSecond = 10'000'000;
+constexpr ULONGLONG kCodexProcessStartTolerance = 5 * kFileTimeTicksPerSecond;
 constexpr std::streamoff kCodexReadBlockBytes = 64 * 1024;
 constexpr std::streamoff kCodexReadOverlapBytes = 256;
 constexpr std::string_view kCodexTaskStarted = R"("type":"event_msg","payload":{"type":"task_started")";
@@ -32,6 +33,12 @@ struct ProcessEntry {
     Provider provider{Provider::External};
     bool is_provider_root{false};
     bool activity_capable{false};
+    ULONGLONG creation_time{0};
+};
+
+struct CodexSessionCandidate {
+    std::filesystem::path path;
+    ULONGLONG write_time{0};
 };
 
 ULONGLONG FileTimeValue(const FILETIME& value) {
@@ -93,6 +100,20 @@ bool ReadMetric(DWORD pid, Provider provider, AgentDetector::ProcessMetric* metr
     return true;
 }
 
+ULONGLONG ReadProcessCreationTime(DWORD pid) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process == nullptr) {
+        return 0;
+    }
+    FILETIME creation{};
+    FILETIME exit{};
+    FILETIME kernel{};
+    FILETIME user{};
+    const bool result = GetProcessTimes(process, &creation, &exit, &kernel, &user) != FALSE;
+    CloseHandle(process);
+    return result ? FileTimeValue(creation) : 0;
+}
+
 std::vector<ProcessEntry> SnapshotProcesses() {
     std::vector<ProcessEntry> processes;
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -114,6 +135,9 @@ std::vector<ProcessEntry> SnapshotProcesses() {
             process.provider = classification.provider;
             process.is_provider_root = classification.is_provider_root;
             process.activity_capable = classification.activity_capable;
+            if (process.provider != Provider::External) {
+                process.creation_time = ReadProcessCreationTime(process.pid);
+            }
             processes.push_back(std::move(process));
         } while (Process32NextW(snapshot, &entry));
     }
@@ -151,24 +175,52 @@ std::filesystem::path CodexSessionsRoot() {
     return std::filesystem::path(codex_home) / L"sessions";
 }
 
-std::vector<std::filesystem::path> RecentCodexDateDirectories(const std::filesystem::path& root) {
-    std::vector<std::filesystem::path> directories;
-    const std::time_t current = std::time(nullptr);
-    for (int day_offset = 0; day_offset < 2; ++day_offset) {
-        const std::time_t day = current - static_cast<std::time_t>(day_offset) * 24 * 60 * 60;
-        std::tm local{};
-        if (localtime_s(&local, &day) != 0) {
-            continue;
-        }
-        std::wostringstream year;
-        std::wostringstream month;
-        std::wostringstream date;
-        year << std::setw(4) << std::setfill(L'0') << local.tm_year + 1900;
-        month << std::setw(2) << std::setfill(L'0') << local.tm_mon + 1;
-        date << std::setw(2) << std::setfill(L'0') << local.tm_mday;
-        directories.push_back(root / year.str() / month.str() / date.str());
+bool ReadFileLastWriteTime(const std::filesystem::path& path, ULONGLONG* write_time) {
+    if (write_time == nullptr) {
+        return false;
     }
-    return directories;
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) {
+        return false;
+    }
+    *write_time = FileTimeValue(attributes.ftLastWriteTime);
+    return true;
+}
+
+std::vector<CodexSessionCandidate> DiscoverRecentCodexSessions(const std::filesystem::path& root) {
+    std::vector<CodexSessionCandidate> candidates;
+    std::error_code error;
+    std::filesystem::recursive_directory_iterator iterator(
+        root,
+        std::filesystem::directory_options::skip_permission_denied,
+        error);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!error && iterator != end) {
+        const std::filesystem::directory_entry& entry = *iterator;
+        if (entry.is_regular_file(error) && !error && entry.path().extension() == L".jsonl") {
+            ULONGLONG write_time = 0;
+            if (ReadFileLastWriteTime(entry.path(), &write_time)) {
+                candidates.push_back(CodexSessionCandidate{entry.path(), write_time});
+            }
+        }
+        error.clear();
+        iterator.increment(error);
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const CodexSessionCandidate& left, const CodexSessionCandidate& right) {
+        return left.write_time > right.write_time;
+    });
+    if (candidates.size() > kMaximumRecentCodexSessions) {
+        candidates.resize(kMaximumRecentCodexSessions);
+    }
+    return candidates;
+}
+
+bool IsCodexSessionEligible(ULONGLONG write_time, ULONGLONG desktop_creation_time) {
+    if (write_time == 0 || desktop_creation_time == 0) {
+        return false;
+    }
+    return write_time >= desktop_creation_time ||
+           desktop_creation_time - write_time <= kCodexProcessStartTolerance;
 }
 
 CodexSessionLifecycle ReadLatestCodexSessionLifecycle(const std::filesystem::path& path) {
@@ -227,6 +279,10 @@ ProcessClassification ClassifyAgentProcess(
                                   !ContainsCaseInsensitive(executable_path, L"\\WindowsApps\\OpenAI.Codex_");
         return result;
     }
+    if (_wcsicmp(executable.c_str(), L"chatgpt.exe") == 0 &&
+        ContainsCaseInsensitive(executable_path, L"\\WindowsApps\\OpenAI.Codex_")) {
+        return ProcessClassification{Provider::Codex, true, false};
+    }
     if (_wcsicmp(executable.c_str(), L"claude.exe") == 0) {
         result.provider = Provider::ClaudeCode;
         result.is_provider_root = true;
@@ -254,39 +310,25 @@ ProcessClassification ClassifyAgentProcess(
     return result;
 }
 
-unsigned int AgentDetector::ScanCodexDesktopSessions() {
-    struct Candidate {
-        std::filesystem::path path;
-        std::filesystem::file_time_type write_time;
-    };
-
+unsigned int AgentDetector::ScanCodexDesktopSessions(ULONGLONG now, ULONGLONG desktop_creation_time) {
+    if (desktop_creation_time == 0) {
+        codex_sessions_.clear();
+        codex_candidate_paths_.clear();
+        next_codex_discovery_at_ = 0;
+        return 0;
+    }
     const std::filesystem::path root = CodexSessionsRoot();
     if (root.empty()) {
         return 0;
     }
 
-    std::vector<Candidate> candidates;
-    for (const std::filesystem::path& directory : RecentCodexDateDirectories(root)) {
-        std::error_code error;
-        std::filesystem::directory_iterator iterator(
-            directory,
-            std::filesystem::directory_options::skip_permission_denied,
-            error);
-        const std::filesystem::directory_iterator end;
-        while (!error && iterator != end) {
-            const std::filesystem::directory_entry& entry = *iterator;
-            if (entry.is_regular_file(error) && entry.path().extension() == L".jsonl") {
-                const std::filesystem::file_time_type write_time = entry.last_write_time(error);
-                if (!error) {
-                    candidates.push_back(Candidate{entry.path(), write_time});
-                }
-            }
-            iterator.increment(error);
+    if (codex_candidate_paths_.empty() || now >= next_codex_discovery_at_) {
+        codex_candidate_paths_.clear();
+        for (const CodexSessionCandidate& candidate : DiscoverRecentCodexSessions(root)) {
+            codex_candidate_paths_.push_back(candidate.path.wstring());
         }
+        next_codex_discovery_at_ = now + kCodexDiscoveryIntervalMilliseconds;
     }
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {
-        return left.write_time > right.write_time;
-    });
 
     std::unordered_set<std::wstring> scanned;
     unsigned int active_count = 0;
@@ -301,11 +343,19 @@ unsigned int AgentDetector::ScanCodexDesktopSessions() {
             codex_sessions_.erase(key);
             return;
         }
+        ULONGLONG write_time = 0;
+        if (!ReadFileLastWriteTime(path, &write_time) ||
+            !IsCodexSessionEligible(write_time, desktop_creation_time)) {
+            codex_sessions_.erase(key);
+            return;
+        }
         auto metric = codex_sessions_.find(key);
-        if (metric == codex_sessions_.end() || metric->second.size != size) {
+        if (metric == codex_sessions_.end() || metric->second.size != size ||
+            metric->second.write_time != write_time) {
             const CodexSessionLifecycle lifecycle = ReadLatestCodexSessionLifecycle(path);
             CodexSessionMetric updated;
             updated.size = size;
+            updated.write_time = write_time;
             updated.active = lifecycle == CodexSessionLifecycle::Active;
             metric = codex_sessions_.insert_or_assign(key, updated).first;
         }
@@ -314,9 +364,8 @@ unsigned int AgentDetector::ScanCodexDesktopSessions() {
         }
     };
 
-    const std::size_t recent_count = std::min(candidates.size(), kMaximumRecentCodexSessions);
-    for (std::size_t index = 0; index < recent_count; ++index) {
-        scan_path(candidates[index].path);
+    for (const std::wstring& path : codex_candidate_paths_) {
+        scan_path(path);
     }
 
     std::vector<std::filesystem::path> previously_active;
@@ -340,7 +389,6 @@ unsigned int AgentDetector::ScanCodexDesktopSessions() {
 }
 
 std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seconds) {
-    const unsigned int active_codex_tasks = ScanCodexDesktopSessions();
     std::vector<ProcessEntry> processes = SnapshotProcesses();
     std::unordered_map<DWORD, std::size_t> index_by_pid;
     index_by_pid.reserve(processes.size());
@@ -359,6 +407,19 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
             process.is_provider_root = false;
         }
     }
+
+    ULONGLONG codex_desktop_creation_time = 0;
+    for (const ProcessEntry& process : processes) {
+        if (process.provider != Provider::Codex || !process.is_provider_root ||
+            process.activity_capable || process.creation_time == 0) {
+            continue;
+        }
+        codex_desktop_creation_time = codex_desktop_creation_time == 0
+                                          ? process.creation_time
+                                          : std::min(codex_desktop_creation_time, process.creation_time);
+    }
+    const unsigned int active_codex_tasks =
+        ScanCodexDesktopSessions(now, codex_desktop_creation_time);
 
     // Propagate a provider from each known agent root to its child process tree.
     for (std::size_t pass = 0; pass < processes.size(); ++pass) {
@@ -478,6 +539,45 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         results.push_back(std::move(result));
     }
     return results;
+}
+
+bool RunAgentDetectorSelfTests() {
+    wchar_t temporary_directory[MAX_PATH]{};
+    if (GetTempPathW(static_cast<DWORD>(std::size(temporary_directory)), temporary_directory) == 0) {
+        return false;
+    }
+    const std::filesystem::path root =
+        std::filesystem::path(temporary_directory) /
+        (L"AgentLatchDetectorSelfTest-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+         std::to_wstring(GetTickCount64()));
+    std::error_code error;
+    const std::filesystem::path old_session = root / L"2020" / L"01" / L"01" / L"resumed.jsonl";
+    try {
+        std::filesystem::create_directories(old_session.parent_path());
+        {
+            std::ofstream stream(old_session, std::ios::binary);
+            stream << R"({"type":"event_msg","payload":{"type":"task_started"}})" << '\n';
+        }
+        const std::vector<CodexSessionCandidate> candidates = DiscoverRecentCodexSessions(root);
+        if (candidates.size() != 1 || candidates.front().path != old_session ||
+            ReadLatestCodexSessionLifecycle(old_session) != CodexSessionLifecycle::Active) {
+            std::filesystem::remove_all(root, error);
+            return false;
+        }
+        const ULONGLONG write_time = candidates.front().write_time;
+        if (!IsCodexSessionEligible(write_time, write_time) ||
+            !IsCodexSessionEligible(write_time, write_time + kCodexProcessStartTolerance) ||
+            IsCodexSessionEligible(write_time, write_time + kCodexProcessStartTolerance + 1) ||
+            IsCodexSessionEligible(write_time, 0)) {
+            std::filesystem::remove_all(root, error);
+            return false;
+        }
+    } catch (...) {
+        std::filesystem::remove_all(root, error);
+        return false;
+    }
+    std::filesystem::remove_all(root, error);
+    return !error;
 }
 
 }  // namespace agent_latch

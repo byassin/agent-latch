@@ -4,6 +4,19 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-31
+
+### Fixed
+
+- Codex tasks resumed from older session folders are now discovered across the full local session tree instead of only today's and yesterday's folders.
+- Stale unfinished lifecycle records from a previous Codex desktop run no longer keep the PC awake after Codex restarts.
+- The current packaged Codex desktop shell (`ChatGPT.exe` inside the `OpenAI.Codex` package) is recognized without treating unrelated ChatGPT applications as Codex.
+- Installer upgrades now preserve a launch-at-sign-in preference enabled from inside AgentLatch.
+
+### Changed
+
+- Native Codex session discovery is refreshed on a bounded five-second cache and remains capped to the 64 most recently modified session files.
+
 ## [0.2.1] - 2026-07-18
 
 ### Added
@@ -64,7 +77,8 @@ All notable changes to AgentLatch will be documented here.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/byassin/agent-latch/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/byassin/agent-latch/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/byassin/agent-latch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/byassin/agent-latch/releases/tag/v0.1.0

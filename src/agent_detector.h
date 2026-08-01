@@ -49,20 +49,24 @@ public:
 private:
     struct CodexSessionMetric {
         std::uintmax_t size{0};
+        ULONGLONG write_time{0};
         bool active{false};
     };
 
-    unsigned int ScanCodexDesktopSessions();
+    unsigned int ScanCodexDesktopSessions(ULONGLONG now, ULONGLONG desktop_creation_time);
 
     bool initialized_{false};
     std::unordered_map<DWORD, ProcessMetric> previous_metrics_;
     std::unordered_map<int, ULONGLONG> last_activity_;
     std::unordered_map<std::wstring, CodexSessionMetric> codex_sessions_;
+    std::vector<std::wstring> codex_candidate_paths_;
+    ULONGLONG next_codex_discovery_at_{0};
 };
 
 ProcessClassification ClassifyAgentProcess(
     const std::wstring& executable,
     const std::wstring& executable_path);
 CodexSessionLifecycle LatestCodexSessionLifecycle(std::string_view json_lines);
+bool RunAgentDetectorSelfTests();
 
 }  // namespace agent_latch

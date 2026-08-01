@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.1"
+  #define AppVersion "0.2.2"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.2.1.0"
+  #define VersionInfoVersion "0.2.2.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -86,8 +86,8 @@ Name: "{group}\Uninstall AgentLatch"; Filename: "{uninstallexe}"; Check: NotTest
 Name: "{autodesktop}\AgentLatch"; Filename: "{app}\AgentLatch.exe"; Tasks: desktopicon; Check: NotTestMode
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AgentLatch"; ValueData: """{app}\AgentLatch.exe"" --background"; Tasks: startup; Flags: uninsdeletevalue; Check: NotTestMode
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "AgentLatch"; Flags: deletevalue; Check: StartupTaskNotSelected
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AgentLatch"; ValueData: """{app}\AgentLatch.exe"" --background"; Flags: uninsdeletevalue; Check: ShouldWriteStartupEntry
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "AgentLatch"; Flags: deletevalue; Check: ShouldDeleteStartupEntry
 Root: HKCU; Subkey: "Software\AgentLatch"; Flags: uninsdeletekey; Check: NotTestMode
 
 [Run]
@@ -103,6 +103,24 @@ Type: files; Name: "{app}\.integrations-installed"
 Type: dirifempty; Name: "{app}"
 
 [Code]
+var
+  ExistingInstall: Boolean;
+  ExistingStartupPreference: Boolean;
+  StartupTaskSeeded: Boolean;
+
+function InitializeSetup(): Boolean;
+begin
+  ExistingInstall := RegKeyExists(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{BBC37307-15F1-4F00-8936-60BC06B5FAB5}_is1');
+  ExistingStartupPreference := RegValueExists(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Run',
+    'AgentLatch');
+  StartupTaskSeeded := False;
+  Result := True;
+end;
+
 function CommandLineContains(const Value: String): Boolean;
 var
   Index: Integer;
@@ -132,9 +150,33 @@ begin
   Result := not CommandLineContains('/TESTMODE');
 end;
 
-function StartupTaskNotSelected(): Boolean;
+function ShouldWriteStartupEntry(): Boolean;
 begin
-  Result := (not WizardIsTaskSelected('startup')) and NotTestMode();
+  if not NotTestMode() then
+    Result := False
+  else if WizardSilent() and ExistingInstall then
+    Result := ExistingStartupPreference
+  else
+    Result := WizardIsTaskSelected('startup');
+end;
+
+function ShouldDeleteStartupEntry(): Boolean;
+begin
+  Result := NotTestMode() and (not ShouldWriteStartupEntry());
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  { Setup remembers its own task choices, but AgentLatch can change this setting
+    later. Refresh the upgrade page from the app's current preference once. }
+  if (CurPageID = wpSelectTasks) and ExistingInstall and (not StartupTaskSeeded) then
+  begin
+    if ExistingStartupPreference then
+      WizardSelectTasks('startup')
+    else
+      WizardSelectTasks('!startup');
+    StartupTaskSeeded := True;
+  end;
 end;
 
 function ShouldInstallHooks(): Boolean;

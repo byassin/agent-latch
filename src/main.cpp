@@ -102,12 +102,18 @@ int RunSelfTests() {
     const ProcessClassification claude_unknown = ClassifyAgentProcess(L"claude.exe", L"");
     const ProcessClassification codex_desktop = ClassifyAgentProcess(
         L"codex.exe", L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_1.0.0.0_x64__test\\app\\codex.exe");
+    const ProcessClassification chatgpt_codex = ClassifyAgentProcess(
+        L"ChatGPT.exe", L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_1.0.0.0_x64__test\\app\\ChatGPT.exe");
+    const ProcessClassification unrelated_chatgpt = ClassifyAgentProcess(
+        L"ChatGPT.exe", L"C:\\Program Files\\WindowsApps\\OpenAI.ChatGPT_1.0.0.0_x64__test\\app\\ChatGPT.exe");
     if (cursor_app.provider != Provider::Cursor || cursor_app.activity_capable ||
         antigravity_app.provider != Provider::GeminiCli || antigravity_app.activity_capable ||
         claude_desktop.provider != Provider::ClaudeCode || claude_desktop.activity_capable ||
         claude_cli.provider != Provider::ClaudeCode || !claude_cli.activity_capable ||
         claude_unknown.provider != Provider::ClaudeCode || claude_unknown.activity_capable ||
-        codex_desktop.provider != Provider::Codex || codex_desktop.activity_capable) {
+        codex_desktop.provider != Provider::Codex || codex_desktop.activity_capable ||
+        chatgpt_codex.provider != Provider::Codex || !chatgpt_codex.is_provider_root ||
+        chatgpt_codex.activity_capable || unrelated_chatgpt.provider != Provider::External) {
         return 47;
     }
 
@@ -149,6 +155,9 @@ int RunSelfTests() {
         LatestCodexSessionLifecycle(R"({"type":"event_msg","payload":{"type":"user_message"}})") !=
             CodexSessionLifecycle::Unknown) {
         return 52;
+    }
+    if (!RunAgentDetectorSelfTests()) {
+        return 53;
     }
 
     PowerRequest request;

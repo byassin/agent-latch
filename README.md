@@ -90,7 +90,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.1
+.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.2
 ```
 
 ## Design principles

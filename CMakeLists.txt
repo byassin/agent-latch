@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.2.1 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.2.2 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
