@@ -137,6 +137,47 @@ bool RunOpenAIUiActivityContractTests() {
             4001).state != OpenAIResponseState::Unknown) {
         return false;
     }
+
+    const OpenAIActivitySnapshot chat_response{
+        OpenAIResponseState::Responding, OpenAISurface::ChatGPT, 9000};
+    const OpenAIMergedActivity fresh_chat =
+        MergeOpenAIActivity(0, chat_response, 10000, 4000);
+    const OpenAIMergedActivity codex_fallback = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Codex, 9000},
+        10000,
+        4000);
+    const OpenAIMergedActivity one_codex =
+        MergeOpenAIActivity(1, chat_response, 10000, 4000);
+    const OpenAIMergedActivity two_codex =
+        MergeOpenAIActivity(2, chat_response, 10000, 4000);
+    if (fresh_chat.active_instances != 1 || fresh_chat.detail != L"ChatGPT is responding" ||
+        codex_fallback.active_instances != 1 || codex_fallback.detail != L"Codex is responding" ||
+        one_codex.active_instances != 1 || one_codex.detail != L"1 Codex task is running" ||
+        two_codex.active_instances != 2 || two_codex.detail != L"2 Codex tasks are running") {
+        return false;
+    }
+
+    const OpenAIMergedActivity inactive = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Inactive, OpenAISurface::ChatGPT, 9000},
+        10000,
+        4000);
+    const OpenAIMergedActivity stale =
+        MergeOpenAIActivity(0, chat_response, 13001, 4000);
+    const OpenAIMergedActivity future =
+        MergeOpenAIActivity(0, chat_response, 8999, 4000);
+    const OpenAIMergedActivity unknown_surface = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Unknown, 9000},
+        10000,
+        4000);
+    if (inactive.active_instances != 0 || !inactive.detail.empty() ||
+        stale.active_instances != 0 || !stale.detail.empty() ||
+        future.active_instances != 0 || !future.detail.empty() ||
+        unknown_surface.active_instances != 0 || !unknown_surface.detail.empty()) {
+        return false;
+    }
     return true;
 }
 

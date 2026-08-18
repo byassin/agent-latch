@@ -53,6 +53,30 @@ bool IsOpenAIComposerClass(const std::wstring& class_name) {
            HasClassToken(class_name, L"bg-primary-solid");
 }
 
+OpenAIMergedActivity MergeOpenAIActivity(
+    unsigned int active_codex_tasks,
+    const OpenAIActivitySnapshot& snapshot,
+    ULONGLONG now,
+    ULONGLONG maximum_age) {
+    if (active_codex_tasks == 1) {
+        return OpenAIMergedActivity{1, L"1 Codex task is running"};
+    }
+    if (active_codex_tasks > 1) {
+        return OpenAIMergedActivity{
+            active_codex_tasks,
+            std::to_wstring(active_codex_tasks) + L" Codex tasks are running"};
+    }
+    if (snapshot.state != OpenAIResponseState::Responding ||
+        snapshot.surface == OpenAISurface::Unknown || snapshot.observed_at == 0 ||
+        snapshot.observed_at > now || now - snapshot.observed_at > maximum_age) {
+        return {};
+    }
+    if (snapshot.surface == OpenAISurface::ChatGPT) {
+        return OpenAIMergedActivity{1, L"ChatGPT is responding"};
+    }
+    return OpenAIMergedActivity{1, L"Codex is responding"};
+}
+
 OpenAIActivitySnapshot OpenAIComposerClassifier::Observe(
     const OpenAIComposerObservation& observation,
     ULONGLONG observed_at) {

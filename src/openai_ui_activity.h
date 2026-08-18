@@ -32,6 +32,17 @@ struct OpenAIActivitySnapshot {
     ULONGLONG observed_at{0};
 };
 
+struct OpenAIMergedActivity {
+    unsigned int active_instances{0};
+    std::wstring detail;
+};
+
+OpenAIMergedActivity MergeOpenAIActivity(
+    unsigned int active_codex_tasks,
+    const OpenAIActivitySnapshot& snapshot,
+    ULONGLONG now,
+    ULONGLONG maximum_age);
+
 bool IsOpenAIComposerClass(const std::wstring& class_name);
 
 class OpenAIComposerClassifier {
