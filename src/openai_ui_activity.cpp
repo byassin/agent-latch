@@ -122,8 +122,8 @@ bool ReadComposerObservation(
     }
     observation->name = ReadElementName(element);
     observation->document_name = ReadNearestDocumentName(element, walker);
-    WINBOOL enabled = FALSE;
-    WINBOOL offscreen = FALSE;
+    BOOL enabled = FALSE;
+    BOOL offscreen = FALSE;
     if (FAILED(element->get_CurrentIsEnabled(&enabled))) {
         return false;
     }
