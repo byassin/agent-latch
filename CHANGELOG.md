@@ -12,6 +12,15 @@ All notable changes to AgentLatch will be documented here.
 
 - OpenAI desktop response detection runs in a read-only background UI Automation worker and observes only the primary composer command metadata. Prompt and conversation content are never read.
 - Codex JSONL lifecycle tasks remain authoritative and are deduplicated against the unified app response signal.
+- The dashboard identifies a UI-derived latch as either a ChatGPT response or a Codex response instead of presenting both as a generic Codex task.
+
+### Fixed
+
+- A regular ChatGPT response now adds its own active instance while Codex lifecycle tasks run; only a Codex composer response is deduplicated against those tasks.
+- Dashboard, tray-menu, and tooltip counts now include concurrent instances represented by an aggregated provider latch.
+- Numeric Windows file and product version resources now stay synchronized with the user-visible semantic version.
+- Source-build and integration documentation now describes the actual output paths, detection timing, release grace, and OpenAI privacy boundary.
+- The installed documentation bundle now includes every local file and image linked from its README.
 
 ## [0.2.3] - 2026-08-01
 

@@ -51,7 +51,16 @@ try {
 
     foreach ($relativePath in @(
         'AgentLatch.exe',
-        'install-integrations.ps1'
+        'install-integrations.ps1',
+        'LICENSE',
+        'README.md',
+        'CHANGELOG.md',
+        'CONTRIBUTING.md',
+        'SECURITY.md',
+        'assets\dashboard.png',
+        'docs\ARCHITECTURE.md',
+        'docs\INTEGRATIONS.md',
+        'docs\PRIVACY.md'
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $relativePath) -PathType Leaf)) {
             throw "Setup did not install $relativePath."

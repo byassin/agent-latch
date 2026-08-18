@@ -77,6 +77,11 @@ Source: "{#RepoRoot}\scripts\install-integrations.ps1"; DestDir: "{app}"; Flags:
 Source: "{#RepoRoot}\scripts\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\CONTRIBUTING.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\dashboard.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\ARCHITECTURE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
