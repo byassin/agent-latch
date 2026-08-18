@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.3"
+  #define AppVersion "0.2.4"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.2.3.0"
+  #define VersionInfoVersion "0.2.4.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -77,6 +77,11 @@ Source: "{#RepoRoot}\scripts\install-integrations.ps1"; DestDir: "{app}"; Flags:
 Source: "{#RepoRoot}\scripts\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\CONTRIBUTING.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\dashboard.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\ARCHITECTURE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 

@@ -2,6 +2,7 @@
 #include "hook_bridge.h"
 #include "ipc.h"
 #include "latch_registry.h"
+#include "openai_ui_activity.h"
 #include "power_request.h"
 #include "settings.h"
 #include "types.h"
@@ -58,14 +59,200 @@ bool ParseSeconds(const std::wstring& text, ULONGLONG* milliseconds) {
     return true;
 }
 
+bool RunOpenAIUiActivityContractTests() {
+    const std::wstring composer_class =
+        L"inline-flex size-token-button-composer rounded-full bg-primary-solid";
+    if (!IsOpenAIComposerClass(composer_class) ||
+        IsOpenAIComposerClass(L"size-token-button-composer-ish bg-primary-solid") ||
+        IsOpenAIComposerClass(L"size-token-button-composer bg-primary-solid-ish")) {
+        return false;
+    }
+
+    OpenAIComposerClassifier english;
+    const OpenAIActivitySnapshot chat_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", true, false},
+        1000);
+    const OpenAIActivitySnapshot chat_send = english.Observe(
+        OpenAIComposerObservation{L"Send", composer_class, L"ChatGPT", true, false},
+        1001);
+    const OpenAIActivitySnapshot minimized_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", true, true},
+        1002);
+    const OpenAIActivitySnapshot disabled_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", false, false},
+        1003);
+    if (chat_stop.state != OpenAIResponseState::Responding ||
+        chat_stop.surface != OpenAISurface::ChatGPT || chat_stop.observed_at != 1000 ||
+        chat_send.state != OpenAIResponseState::Inactive ||
+        minimized_stop.state != OpenAIResponseState::Responding ||
+        disabled_stop.state != OpenAIResponseState::Inactive) {
+        return false;
+    }
+
+    OpenAIComposerClassifier codex;
+    const OpenAIActivitySnapshot codex_stop = codex.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"Codex", true, false},
+        2000);
+    const OpenAIActivitySnapshot unknown_document = codex.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"Projects", true, false},
+        2001);
+    const OpenAIActivitySnapshot empty_name = codex.Observe(
+        OpenAIComposerObservation{L"", composer_class, L"Codex", true, false},
+        2002);
+    const OpenAIActivitySnapshot unrelated = codex.Observe(
+        OpenAIComposerObservation{L"Stop", L"ordinary-button", L"Codex", true, false},
+        2003);
+    if (codex_stop.state != OpenAIResponseState::Responding ||
+        codex_stop.surface != OpenAISurface::Codex ||
+        unknown_document.state != OpenAIResponseState::Unknown ||
+        empty_name.state != OpenAIResponseState::Unknown ||
+        unrelated.state != OpenAIResponseState::Unknown) {
+        return false;
+    }
+
+    OpenAIComposerClassifier localized;
+    const OpenAIComposerObservation localized_idle{
+        L"Envoyer", composer_class, L"ChatGPT", false, false};
+    if (localized.Observe(
+            OpenAIComposerObservation{L"Envoyer", composer_class, L"ChatGPT", true, false},
+            3000).state != OpenAIResponseState::Unknown ||
+        localized.Observe(localized_idle, 3001).state != OpenAIResponseState::Inactive ||
+        localized.Observe(localized_idle, 3002).state != OpenAIResponseState::Inactive ||
+        localized.Observe(localized_idle, 3003).state != OpenAIResponseState::Inactive ||
+        localized.Observe(
+            OpenAIComposerObservation{L"Envoyer", composer_class, L"ChatGPT", true, false},
+            3004).state != OpenAIResponseState::Inactive ||
+        localized.Observe(
+            OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", true, false},
+            3005).state != OpenAIResponseState::Responding) {
+        return false;
+    }
+
+    OpenAIComposerClassifier transient;
+    transient.Observe(
+        OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", false, false},
+        4000);
+    if (transient.Observe(
+            OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", true, false},
+            4001).state != OpenAIResponseState::Unknown) {
+        return false;
+    }
+
+    const OpenAIActivitySnapshot chat_response{
+        OpenAIResponseState::Responding, OpenAISurface::ChatGPT, 9000};
+    const OpenAIMergedActivity fresh_chat =
+        MergeOpenAIActivity(0, chat_response, 10000, 4000);
+    const OpenAIMergedActivity codex_fallback = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Codex, 9000},
+        10000,
+        4000);
+    const OpenAIMergedActivity one_codex_and_chat =
+        MergeOpenAIActivity(1, chat_response, 10000, 4000);
+    const OpenAIMergedActivity two_codex_and_chat =
+        MergeOpenAIActivity(2, chat_response, 10000, 4000);
+    const OpenAIMergedActivity one_codex_and_codex_response = MergeOpenAIActivity(
+        1,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Codex, 9000},
+        10000,
+        4000);
+    if (fresh_chat.active_instances != 1 || fresh_chat.detail != L"ChatGPT is responding" ||
+        codex_fallback.active_instances != 1 || codex_fallback.detail != L"Codex is responding" ||
+        one_codex_and_chat.active_instances != 2 ||
+        one_codex_and_chat.detail != L"1 Codex task + ChatGPT response" ||
+        two_codex_and_chat.active_instances != 3 ||
+        two_codex_and_chat.detail != L"2 Codex tasks + ChatGPT response" ||
+        one_codex_and_codex_response.active_instances != 1 ||
+        one_codex_and_codex_response.detail != L"1 Codex task is running") {
+        return false;
+    }
+
+    const OpenAIMergedActivity inactive = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Inactive, OpenAISurface::ChatGPT, 9000},
+        10000,
+        4000);
+    const OpenAIMergedActivity stale =
+        MergeOpenAIActivity(0, chat_response, 13001, 4000);
+    const OpenAIMergedActivity future =
+        MergeOpenAIActivity(0, chat_response, 8999, 4000);
+    const OpenAIMergedActivity unknown_surface = MergeOpenAIActivity(
+        0,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Unknown, 9000},
+        10000,
+        4000);
+    if (inactive.active_instances != 0 || !inactive.detail.empty() ||
+        stale.active_instances != 0 || !stale.detail.empty() ||
+        future.active_instances != 0 || !future.detail.empty() ||
+        unknown_surface.active_instances != 0 || !unknown_surface.detail.empty()) {
+        return false;
+    }
+
+    const std::vector<DWORD> normalized_targets =
+        NormalizeOpenAITargets(std::vector<DWORD>{42, 0, 7, 42, 7});
+    if (normalized_targets != std::vector<DWORD>{7, 42}) {
+        return false;
+    }
+    OpenAIUnifiedActivityProbe probe;
+    const OpenAIActivitySnapshot initial_snapshot = probe.Snapshot();
+    if (initial_snapshot.state != OpenAIResponseState::Unknown ||
+        initial_snapshot.surface != OpenAISurface::Unknown ||
+        initial_snapshot.observed_at != 0) {
+        return false;
+    }
+    probe.SetTargets(std::vector<DWORD>{0, 42, 42});
+
+    DetectionResult chat_result;
+    chat_result.provider = Provider::Codex;
+    ApplyOpenAIActivityToDetectionResult(
+        &chat_result,
+        OpenAIMergedActivity{1, L"ChatGPT is responding"},
+        12000);
+    if (chat_result.active_task_instances != 1 || !chat_result.recently_active ||
+        chat_result.last_activity != 12000 ||
+        chat_result.activity_detail != L"ChatGPT is responding") {
+        return false;
+    }
+    if (DetectorLatchLabel(chat_result, DetectionMode::Tasks) != L"ChatGPT response") {
+        return false;
+    }
+    DetectionResult combined_openai;
+    combined_openai.provider = Provider::Codex;
+    combined_openai.activity_detail = L"1 Codex task + ChatGPT response";
+    if (DetectorLatchLabel(combined_openai, DetectionMode::Tasks) != L"OpenAI work") {
+        return false;
+    }
+    DetectionResult codex_response;
+    codex_response.provider = Provider::Codex;
+    codex_response.activity_detail = L"Codex is responding";
+    if (DetectorLatchLabel(codex_response, DetectionMode::Tasks) != L"Codex response" ||
+        DetectorLatchLabel(codex_response, DetectionMode::Open) != L"Codex open") {
+        return false;
+    }
+    DetectionResult idle_result;
+    idle_result.activity_detail = L"waiting";
+    ApplyOpenAIActivityToDetectionResult(&idle_result, OpenAIMergedActivity{}, 12000);
+    if (idle_result.active_task_instances != 0 || idle_result.recently_active ||
+        idle_result.last_activity != 0 || idle_result.activity_detail != L"waiting") {
+        return false;
+    }
+    return true;
+}
+
 int RunSelfTests() {
     const ULONGLONG now = GetTickCount64();
     LatchRegistry registry;
     if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000) ||
-        !registry.IsActive() || registry.Size() != 1 || registry.Find(L"test") == nullptr) {
+        !registry.IsActive() || registry.Size() != 1 || registry.ActiveInstanceCount() != 1 ||
+        registry.Find(L"test") == nullptr) {
         return 41;
     }
-    if (registry.Expire(now + 999) || !registry.Expire(now + 1000) || registry.IsActive()) {
+    if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000, 3) ||
+        registry.ActiveInstanceCount() != 3) {
+        return 41;
+    }
+    if (registry.Expire(now + 999) || !registry.Expire(now + 1000) || registry.IsActive() ||
+        registry.ActiveInstanceCount() != 0) {
         return 42;
     }
 
@@ -176,6 +363,10 @@ int RunSelfTests() {
     managed_claude.claude_mode = DetectionMode::Open;
     if (!managed_claude.UseProcessActivityFallback(Provider::ClaudeCode)) {
         return 56;
+    }
+
+    if (!RunOpenAIUiActivityContractTests()) {
+        return 57;
     }
 
     PowerRequest request;

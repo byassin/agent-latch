@@ -33,6 +33,7 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "AgentLatch self-test failed with exit code $($process.ExitCode)."
           }
+          .\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion '${{ steps.version.outputs.version }}'
           .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 

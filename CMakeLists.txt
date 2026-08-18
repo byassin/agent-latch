@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.2.3 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.2.4 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -25,6 +25,7 @@ add_executable(AgentLatch WIN32
     src/power_request.cpp
     src/latch_registry.cpp
     src/agent_detector.cpp
+    src/openai_ui_activity.cpp
     src/ipc.cpp
     src/hook_bridge.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
@@ -48,7 +49,10 @@ target_link_libraries(AgentLatch PRIVATE
     dwmapi
     gdi32
     kernel32
+    ole32
+    oleaut32
     shell32
+    uiautomationcore
     user32
 )
 

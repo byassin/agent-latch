@@ -2,11 +2,11 @@
 
 AgentLatch gives every provider one of three modes:
 
-1. **Tasks** (default) latches only for native Codex lifecycle state, lifecycle-hook work, or conservative agent CLI activity when no authoritative managed integration exists.
+1. **Tasks** (default) latches only for active unified-app responses, native Codex lifecycle state, lifecycle-hook work, or conservative agent CLI activity when no authoritative managed integration exists.
 2. **Open** latches whenever the selected app or CLI process exists.
 3. **Off** ignores that provider and releases its automatic latches.
 
-Desktop Electron processes perform background work even when no agent is running, so AgentLatch deliberately does not use their CPU or I/O as evidence of a task. Codex desktop uses its local task start/complete lifecycle stream. Claude Code, Cursor, and Google Antigravity use lifecycle hooks in **Tasks** mode. CLI-only processes retain activity detection as a fallback. Every path feeds the same latch registry, so concurrent reasons are counted independently.
+Desktop Electron processes perform background work even when no agent is running, so AgentLatch deliberately does not use their CPU or I/O as evidence of a task. The unified OpenAI app uses its primary composer response state for ChatGPT and its local task start/complete lifecycle stream for Codex. Claude Code, Cursor, and Google Antigravity use lifecycle hooks in **Tasks** mode. CLI-only processes retain activity detection as a fallback. Every path feeds the same latch registry. Distinct lifecycle identities are counted independently. A regular ChatGPT response counts alongside active Codex tasks; only an overlapping Codex composer response is deduplicated.
 
 ## Installing hooks
 
@@ -46,13 +46,15 @@ The setup executable and repair script both:
 
 The normal Windows uninstaller removes these entries automatically while leaving every unrelated hook untouched.
 
-Restart active agent sessions after changing hooks so they reload their configuration. Codex desktop requires none of these hook steps; its native lifecycle detection works immediately.
+Restart active agent sessions after changing hooks so they reload their configuration. The unified OpenAI desktop app requires none of these hook steps; its native response and Codex lifecycle detection work immediately.
 
-## Codex
+## OpenAI desktop and Codex CLI
 
 Configuration: `%USERPROFILE%\.codex\hooks.json`
 
-For the Codex desktop app, AgentLatch reads the local JSONL lifecycle stream and treats `task_started` without a later `task_complete` as active work. Merely leaving Codex open does not latch. Concurrent active task files become independent latch instances.
+For the packaged unified OpenAI desktop app, AgentLatch recognizes an active ChatGPT or Codex response from the primary composer command's read-only Windows accessibility metadata. It targets only the expected `OpenAI.Codex` app package, samples every two seconds, and distinguishes the ChatGPT and Codex Documents for an accurate dashboard label. English Send/Stop names are recognized directly; other locales are learned only after a disabled idle command remains stable for three observations. The signal continues while the app is minimized and fails closed if an app update makes the expected control unavailable. AgentLatch does not read the prompt, response, or conversation.
+
+For Codex tasks, AgentLatch checks the local JSONL lifecycle stream every five seconds and treats `task_started` without a later `task_complete` as active work. Merely leaving the app open does not latch. Concurrent active task files become independent latch instances. An overlapping Codex composer signal is deduplicated, while a simultaneous regular ChatGPT response adds another active instance and appears as combined OpenAI work in the dashboard.
 
 For Codex CLI, configured hook events include session start, prompt submission, tool use, subagent start/stop, and task stop. The event's `session_id` becomes the stable latch identity; subagent IDs receive their own latches.
 
@@ -62,7 +64,7 @@ AgentLatch accepts Codex hook JSON on standard input:
 "C:\path\to\AgentLatch.exe" --hook codex
 ```
 
-Codex CLI also has conservative process-activity detection as a fallback. See the official [Codex hooks reference](https://developers.openai.com/codex/hooks/).
+Codex CLI also has conservative process-activity detection as a fallback. See the official [Codex hooks reference](https://learn.chatgpt.com/docs/hooks).
 
 ## Claude Code
 
@@ -117,8 +119,10 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 
 ## Lease behavior
 
+- Native detector state is refreshed every two seconds; Codex lifecycle files are rediscovered every five seconds.
+- Detector activity retains a 180-second safety grace by default while the provider remains open. Closing the provider or switching it **Off** releases the detector latch on the next reconciliation cycle.
 - Hook leases default to 30 minutes and renew whenever useful lifecycle activity arrives.
 - External leases default to 30 minutes and accept a TTL from 0 to 86,400 seconds.
-- A stop event releases its matching session or subagent immediately.
+- A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.
 - Disabling a provider in the dashboard removes that provider's automatic and hook latches immediately.

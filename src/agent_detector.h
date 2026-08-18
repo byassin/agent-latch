@@ -1,5 +1,6 @@
 #pragma once
 
+#include "openai_ui_activity.h"
 #include "types.h"
 
 #include <windows.h>
@@ -22,6 +23,11 @@ struct DetectionResult {
     std::wstring open_detail;
     std::wstring activity_detail;
 };
+
+void ApplyOpenAIActivityToDetectionResult(
+    DetectionResult* result,
+    const OpenAIMergedActivity& activity,
+    ULONGLONG now);
 
 struct ProcessClassification {
     Provider provider{Provider::External};
@@ -61,6 +67,7 @@ private:
     std::unordered_map<std::wstring, CodexSessionMetric> codex_sessions_;
     std::vector<std::wstring> codex_candidate_paths_;
     ULONGLONG next_codex_discovery_at_{0};
+    OpenAIUnifiedActivityProbe openai_probe_;
 };
 
 ProcessClassification ClassifyAgentProcess(

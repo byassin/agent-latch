@@ -104,6 +104,14 @@ std::size_t LatchRegistry::Size() const {
     return latches_.size();
 }
 
+std::size_t LatchRegistry::ActiveInstanceCount() const {
+    std::size_t count = 0;
+    for (const auto& entry : latches_) {
+        count += entry.second.instance_count;
+    }
+    return count;
+}
+
 bool LatchRegistry::HasKind(LatchKind kind) const {
     return std::any_of(latches_.begin(), latches_.end(), [kind](const auto& entry) {
         return entry.second.kind == kind;
