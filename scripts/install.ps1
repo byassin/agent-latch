@@ -70,6 +70,6 @@ if ($PSCmdlet.ShouldProcess($InstallDirectory, 'Install AgentLatch')) {
         Write-Host 'Agent integrations were skipped by request.'
     } else {
         Write-Host 'Agent integrations were installed for Codex, Claude Code, Cursor, and Google Antigravity.'
-        Write-Host 'Codex desktop task lifecycle detection works automatically; no chat command or manual hook review is required.'
+        Write-Host 'Unified OpenAI app response and Codex task detection work automatically; no chat command or manual hook review is required.'
     }
 }

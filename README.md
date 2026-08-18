@@ -17,7 +17,7 @@ AgentLatch is a lightweight, open-source Windows tray app that prevents idle sle
 - **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Google Antigravity/Gemini CLI.
 - **Concurrency-safe:** every conversation, session, and subagent gets an independent latch; sleep resumes only after all active work releases.
 - **Your choice of precision:** set every provider independently to **Tasks**, **Open**, or **Off**.
-- **Task-first by default:** Codex desktop lifecycle records and provider hooks track actual work; conservative CLI activity detection is the fallback.
+- **Task-first by default:** the unified OpenAI app's response state, Codex lifecycle records, and provider hooks track actual work; conservative CLI activity detection is the fallback.
 - **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
 - **Transparent:** the dashboard shows exactly what is keeping the machine awake and why.
 - **Native and private:** one Win32 executable, no account, no service, no telemetry, and no administrator rights.
@@ -28,13 +28,13 @@ AgentLatch uses a Windows power request. It does not jiggle the mouse, synthesiz
 
 | Provider | Tasks mode | Open mode | Lifecycle hooks |
 |---|---|---|---|
-| Codex | Native desktop lifecycle + hooks/CLI activity | Desktop app or CLI | Desktop tasks; CLI sessions and subagents |
+| OpenAI / Codex | ChatGPT response state + native Codex lifecycle + hooks/CLI activity | Unified desktop app or CLI | Codex tasks; CLI sessions and subagents |
 | Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions and subagents |
 | Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
 | OpenCode | CLI activity | CLI process | External lease API |
 | Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
 
-In **Tasks** mode, opening an Electron app by itself never latches the computer. Native lifecycle state and hooks acquire a bounded latch when work begins and release it when the provider reports completion. Hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
+In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Native lifecycle state and hooks acquire a bounded latch when work begins and release it when the provider reports completion. Hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
 
 ## Install
 
@@ -47,7 +47,7 @@ Setup installs AgentLatch for the current user without an administrator prompt, 
 
 Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. The Windows uninstaller removes only AgentLatch's own integration entries.
 
-Codex desktop task detection is native and automatic: AgentLatch reads the local start/complete lifecycle stream that Codex already maintains. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
+OpenAI desktop detection is native and automatic. AgentLatch reads Codex's local start/complete lifecycle stream and observes the unified app's primary Send/Stop command metadata so ChatGPT responses also keep the PC awake. It never reads prompt or conversation content. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
 
 Windows may display a SmartScreen warning until project releases are Authenticode-signed.
 
@@ -56,8 +56,8 @@ Windows may display a SmartScreen warning until project releases are Authenticod
 Each release includes a `.sha256` sidecar beside every setup executable and a combined `SHA256SUMS.txt`. Compare the installer hash with either published value before running it:
 
 ```powershell
-Get-FileHash .\AgentLatch-Setup-0.2.3-x64.exe -Algorithm SHA256
-Get-Content .\AgentLatch-Setup-0.2.3-x64.exe.sha256
+Get-FileHash .\AgentLatch-Setup-0.2.4-x64.exe -Algorithm SHA256
+Get-Content .\AgentLatch-Setup-0.2.4-x64.exe.sha256
 ```
 
 Replace the version and architecture in those filenames with the asset you downloaded.
@@ -102,7 +102,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.3
+.\scripts\build-installer.ps1 -Executable .\build\Release\AgentLatch.exe -Version 0.2.4
 ```
 
 ## Design principles

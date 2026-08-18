@@ -4,6 +4,15 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Tasks mode now detects active ChatGPT responses in the unified OpenAI Windows app, including when its window is minimized, without latching merely because the app is open.
+
+### Changed
+
+- OpenAI desktop response detection runs in a read-only background UI Automation worker and observes only the primary composer command metadata. Prompt and conversation content are never read.
+- Codex JSONL lifecycle tasks remain authoritative and are deduplicated against the unified app response signal.
+
 ## [0.2.3] - 2026-08-01
 
 ### Fixed

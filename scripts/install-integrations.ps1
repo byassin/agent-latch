@@ -410,5 +410,5 @@ if (-not $WhatIfPreference -and -not [string]::IsNullOrWhiteSpace($InstallMarker
 if ($WhatIfPreference) {
     Write-Host 'Preview complete. No configuration files were written.'
 } else {
-    Write-Host $(if ($Uninstall) { 'Selected AgentLatch lifecycle hooks were removed.' } else { 'AgentLatch lifecycle hooks are ready. Restart active agent sessions so they reload their configuration. Codex desktop task detection works automatically and requires no chat command.' })
+    Write-Host $(if ($Uninstall) { 'Selected AgentLatch lifecycle hooks were removed.' } else { 'AgentLatch lifecycle hooks are ready. Restart active agent sessions so they reload their configuration. Unified OpenAI app response and Codex task detection work automatically and require no chat command.' })
 }

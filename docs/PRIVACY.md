@@ -8,10 +8,11 @@ It does not include analytics, advertising, telemetry, crash upload, an account 
 
 - process IDs, executable names, parent-child relationships, CPU time, and I/O counters for agent detection;
 - bounded backward-read blocks from recent local Codex session JSONL files, searched only for the latest `task_started` or `task_complete` marker (AgentLatch does not parse or retain other record content);
+- read-only Windows UI Automation metadata for the unified OpenAI app's primary composer command: control type, class name, enabled/offscreen state, accessibility command name, nearest Document name, and owning process ID;
 - provider lifecycle JSON sent directly to the hook command, from which it uses event name, session/subagent identity, and the leaf workspace folder name; and
 - settings selected in the dashboard.
 
-Codex session blocks and hook input are processed in memory and discarded. The dashboard displays only a short provider label and workspace leaf name. Active latches are memory-only.
+Codex session blocks, OpenAI composer metadata, and hook input are processed in memory and discarded. AgentLatch does not enumerate or read conversation-message or prompt-edit controls. The dashboard displays only a short provider label and workspace leaf name. Active latches are memory-only.
 
 ## Data AgentLatch stores
 
