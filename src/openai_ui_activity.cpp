@@ -164,7 +164,7 @@ bool IsOpenAIComposerClass(const std::wstring& class_name) {
 }
 
 std::vector<DWORD> NormalizeOpenAITargets(std::vector<DWORD> process_ids) {
-    std::erase(process_ids, 0);
+    std::erase(process_ids, DWORD{0});
     std::sort(process_ids.begin(), process_ids.end());
     process_ids.erase(std::unique(process_ids.begin(), process_ids.end()), process_ids.end());
     return process_ids;
