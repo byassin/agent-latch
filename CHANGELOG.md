@@ -4,6 +4,8 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-17
+
 ### Added
 
 - Tasks mode now detects active ChatGPT responses in the unified OpenAI Windows app, including when its window is minimized, without latching merely because the app is open.
@@ -106,7 +108,8 @@ All notable changes to AgentLatch will be documented here.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/byassin/agent-latch/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/byassin/agent-latch/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/byassin/agent-latch/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/byassin/agent-latch/compare/v0.2.0...v0.2.1
