@@ -25,6 +25,7 @@ add_executable(AgentLatch WIN32
     src/power_request.cpp
     src/latch_registry.cpp
     src/agent_detector.cpp
+    src/openai_ui_activity.cpp
     src/ipc.cpp
     src/hook_bridge.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"

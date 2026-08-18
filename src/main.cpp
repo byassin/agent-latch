@@ -2,6 +2,7 @@
 #include "hook_bridge.h"
 #include "ipc.h"
 #include "latch_registry.h"
+#include "openai_ui_activity.h"
 #include "power_request.h"
 #include "settings.h"
 #include "types.h"
@@ -55,6 +56,87 @@ bool ParseSeconds(const std::wstring& text, ULONGLONG* milliseconds) {
         return false;
     }
     *milliseconds = static_cast<ULONGLONG>(seconds) * 1000;
+    return true;
+}
+
+bool RunOpenAIUiActivityContractTests() {
+    const std::wstring composer_class =
+        L"inline-flex size-token-button-composer rounded-full bg-primary-solid";
+    if (!IsOpenAIComposerClass(composer_class) ||
+        IsOpenAIComposerClass(L"size-token-button-composer-ish bg-primary-solid") ||
+        IsOpenAIComposerClass(L"size-token-button-composer bg-primary-solid-ish")) {
+        return false;
+    }
+
+    OpenAIComposerClassifier english;
+    const OpenAIActivitySnapshot chat_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", true, false},
+        1000);
+    const OpenAIActivitySnapshot chat_send = english.Observe(
+        OpenAIComposerObservation{L"Send", composer_class, L"ChatGPT", true, false},
+        1001);
+    const OpenAIActivitySnapshot minimized_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", true, true},
+        1002);
+    const OpenAIActivitySnapshot disabled_stop = english.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"ChatGPT", false, false},
+        1003);
+    if (chat_stop.state != OpenAIResponseState::Responding ||
+        chat_stop.surface != OpenAISurface::ChatGPT || chat_stop.observed_at != 1000 ||
+        chat_send.state != OpenAIResponseState::Inactive ||
+        minimized_stop.state != OpenAIResponseState::Responding ||
+        disabled_stop.state != OpenAIResponseState::Inactive) {
+        return false;
+    }
+
+    OpenAIComposerClassifier codex;
+    const OpenAIActivitySnapshot codex_stop = codex.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"Codex", true, false},
+        2000);
+    const OpenAIActivitySnapshot unknown_document = codex.Observe(
+        OpenAIComposerObservation{L"Stop", composer_class, L"Projects", true, false},
+        2001);
+    const OpenAIActivitySnapshot empty_name = codex.Observe(
+        OpenAIComposerObservation{L"", composer_class, L"Codex", true, false},
+        2002);
+    const OpenAIActivitySnapshot unrelated = codex.Observe(
+        OpenAIComposerObservation{L"Stop", L"ordinary-button", L"Codex", true, false},
+        2003);
+    if (codex_stop.state != OpenAIResponseState::Responding ||
+        codex_stop.surface != OpenAISurface::Codex ||
+        unknown_document.state != OpenAIResponseState::Unknown ||
+        empty_name.state != OpenAIResponseState::Unknown ||
+        unrelated.state != OpenAIResponseState::Unknown) {
+        return false;
+    }
+
+    OpenAIComposerClassifier localized;
+    const OpenAIComposerObservation localized_idle{
+        L"Envoyer", composer_class, L"ChatGPT", false, false};
+    if (localized.Observe(
+            OpenAIComposerObservation{L"Envoyer", composer_class, L"ChatGPT", true, false},
+            3000).state != OpenAIResponseState::Unknown ||
+        localized.Observe(localized_idle, 3001).state != OpenAIResponseState::Inactive ||
+        localized.Observe(localized_idle, 3002).state != OpenAIResponseState::Inactive ||
+        localized.Observe(localized_idle, 3003).state != OpenAIResponseState::Inactive ||
+        localized.Observe(
+            OpenAIComposerObservation{L"Envoyer", composer_class, L"ChatGPT", true, false},
+            3004).state != OpenAIResponseState::Inactive ||
+        localized.Observe(
+            OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", true, false},
+            3005).state != OpenAIResponseState::Responding) {
+        return false;
+    }
+
+    OpenAIComposerClassifier transient;
+    transient.Observe(
+        OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", false, false},
+        4000);
+    if (transient.Observe(
+            OpenAIComposerObservation{L"Arreter", composer_class, L"ChatGPT", true, false},
+            4001).state != OpenAIResponseState::Unknown) {
+        return false;
+    }
     return true;
 }
 
@@ -176,6 +258,10 @@ int RunSelfTests() {
     managed_claude.claude_mode = DetectionMode::Open;
     if (!managed_claude.UseProcessActivityFallback(Provider::ClaudeCode)) {
         return 56;
+    }
+
+    if (!RunOpenAIUiActivityContractTests()) {
+        return 57;
     }
 
     PowerRequest request;
