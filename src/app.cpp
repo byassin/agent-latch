@@ -103,6 +103,19 @@ UiAction MenuToAction(UINT command) {
 
 }  // namespace
 
+std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode) {
+    if (mode == DetectionMode::Tasks && result.provider == Provider::Codex) {
+        if (result.activity_detail == L"ChatGPT is responding") {
+            return L"ChatGPT response";
+        }
+        if (result.activity_detail == L"Codex is responding") {
+            return L"Codex response";
+        }
+    }
+    return std::wstring(ProviderName(result.provider)) +
+           (mode == DetectionMode::Tasks ? L" task" : L" open");
+}
+
 AgentLatchApp::AgentLatchApp(HINSTANCE instance) : instance_(instance) {}
 
 AgentLatchApp::~AgentLatchApp() {
@@ -253,7 +266,7 @@ void AgentLatchApp::UpdateDetectorLatches() {
                 id,
                 result.provider,
                 LatchKind::Detector,
-                std::wstring(ProviderName(result.provider)) + (task_mode ? L" task" : L" open"),
+                DetectorLatchLabel(result, mode),
                 task_mode ? result.activity_detail : result.open_detail,
                 now,
                 0,

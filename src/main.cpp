@@ -194,6 +194,7 @@ bool RunOpenAIUiActivityContractTests() {
     probe.SetTargets(std::vector<DWORD>{0, 42, 42});
 
     DetectionResult chat_result;
+    chat_result.provider = Provider::Codex;
     ApplyOpenAIActivityToDetectionResult(
         &chat_result,
         OpenAIMergedActivity{1, L"ChatGPT is responding"},
@@ -201,6 +202,16 @@ bool RunOpenAIUiActivityContractTests() {
     if (chat_result.active_task_instances != 1 || !chat_result.recently_active ||
         chat_result.last_activity != 12000 ||
         chat_result.activity_detail != L"ChatGPT is responding") {
+        return false;
+    }
+    if (DetectorLatchLabel(chat_result, DetectionMode::Tasks) != L"ChatGPT response") {
+        return false;
+    }
+    DetectionResult codex_response;
+    codex_response.provider = Provider::Codex;
+    codex_response.activity_detail = L"Codex is responding";
+    if (DetectorLatchLabel(codex_response, DetectionMode::Tasks) != L"Codex response" ||
+        DetectorLatchLabel(codex_response, DetectionMode::Open) != L"Codex open") {
         return false;
     }
     DetectionResult idle_result;

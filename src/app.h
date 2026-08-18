@@ -13,6 +13,8 @@
 
 namespace agent_latch {
 
+std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode);
+
 class AgentLatchApp {
 public:
     explicit AgentLatchApp(HINSTANCE instance);
