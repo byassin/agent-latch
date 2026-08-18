@@ -114,6 +114,10 @@ std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
         if (latch.label.ends_with(L" open")) {
             return L"App open";
         }
+        if (latch.detail.find(L"ChatGPT response") != std::wstring::npos &&
+            latch.detail.find(L"Codex task") != std::wstring::npos) {
+            return L"Codex + ChatGPT";
+        }
         if (latch.instance_count > 1) {
             return std::to_wstring(latch.instance_count) + L" tasks running";
         }
@@ -256,12 +260,17 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
     DrawTextBlock(memory, headline, hero_label, heading_font_, state.active ? kActive : kText);
 
     RECT hero_detail{hero.left + Scale(22), hero.top + Scale(39), hero.right - Scale(20), hero.bottom - Scale(7)};
+    std::size_t active_instance_count = 0;
+    for (const Latch& latch : state.latches) {
+        active_instance_count += latch.instance_count;
+    }
+
     std::wstring detail;
     if (!state.power_request_available) {
         detail = L"Windows rejected the power request.";
     } else if (state.active) {
-        detail = std::to_wstring(state.latches.size()) +
-                 (state.latches.size() == 1 ? L" latch is active" : L" latches are active");
+        detail = std::to_wstring(active_instance_count) +
+                 (active_instance_count == 1 ? L" latch is active" : L" latches are active");
         detail += state.keep_display_on ? L" · display stays on" : L" · display may sleep";
     } else {
         detail = L"Windows can sleep · watching for active agent work";

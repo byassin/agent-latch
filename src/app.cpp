@@ -105,6 +105,10 @@ UiAction MenuToAction(UINT command) {
 
 std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode) {
     if (mode == DetectionMode::Tasks && result.provider == Provider::Codex) {
+        if (result.activity_detail.find(L"ChatGPT response") != std::wstring::npos &&
+            result.activity_detail.find(L"Codex task") != std::wstring::npos) {
+            return L"OpenAI work";
+        }
         if (result.activity_detail == L"ChatGPT is responding") {
             return L"ChatGPT response";
         }
@@ -401,7 +405,7 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
 
     AppendMenuW(menu, MF_STRING | MF_DEFAULT, kMenuOpen, L"Open AgentLatch");
     std::wstring status = latches_.IsActive()
-                              ? L"Latched · " + std::to_wstring(latches_.Size()) + L" active"
+                              ? L"Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                               : L"Windows can sleep";
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, status.c_str());
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -585,7 +589,7 @@ void AgentLatchApp::UpdateTrayIcon() {
     tray_icon_.uFlags = NIF_ICON | NIF_TIP | NIF_GUID | NIF_SHOWTIP;
     tray_icon_.hIcon = latches_.IsActive() ? (manual ? manual_icon_ : active_icon_) : idle_icon_;
     const std::wstring tip = latches_.IsActive()
-                                 ? L"AgentLatch · Latched · " + std::to_wstring(latches_.Size()) + L" active"
+                                 ? L"AgentLatch · Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                                  : L"AgentLatch · Windows can sleep";
     lstrcpynW(tray_icon_.szTip, tip.c_str(), static_cast<int>(std::size(tray_icon_.szTip)));
     Shell_NotifyIconW(NIM_MODIFY, &tray_icon_);

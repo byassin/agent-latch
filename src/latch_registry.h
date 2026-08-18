@@ -28,6 +28,7 @@ public:
 
     bool IsActive() const;
     std::size_t Size() const;
+    std::size_t ActiveInstanceCount() const;
     bool HasKind(LatchKind kind) const;
     const Latch* Find(const std::wstring& id) const;
     std::vector<Latch> Snapshot() const;

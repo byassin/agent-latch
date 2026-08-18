@@ -174,6 +174,19 @@ OpenAIMergedActivity MergeOpenAIActivity(
     const OpenAIActivitySnapshot& snapshot,
     ULONGLONG now,
     ULONGLONG maximum_age) {
+    const bool fresh_response =
+        snapshot.state == OpenAIResponseState::Responding &&
+        snapshot.surface != OpenAISurface::Unknown && snapshot.observed_at != 0 &&
+        snapshot.observed_at <= now && now - snapshot.observed_at <= maximum_age;
+
+    if (active_codex_tasks > 0 && fresh_response && snapshot.surface == OpenAISurface::ChatGPT) {
+        const std::wstring codex_detail = active_codex_tasks == 1
+                                              ? L"1 Codex task"
+                                              : std::to_wstring(active_codex_tasks) + L" Codex tasks";
+        return OpenAIMergedActivity{
+            active_codex_tasks + 1,
+            codex_detail + L" + ChatGPT response"};
+    }
     if (active_codex_tasks == 1) {
         return OpenAIMergedActivity{1, L"1 Codex task is running"};
     }
@@ -182,9 +195,7 @@ OpenAIMergedActivity MergeOpenAIActivity(
             active_codex_tasks,
             std::to_wstring(active_codex_tasks) + L" Codex tasks are running"};
     }
-    if (snapshot.state != OpenAIResponseState::Responding ||
-        snapshot.surface == OpenAISurface::Unknown || snapshot.observed_at == 0 ||
-        snapshot.observed_at > now || now - snapshot.observed_at > maximum_age) {
+    if (!fresh_response) {
         return {};
     }
     if (snapshot.surface == OpenAISurface::ChatGPT) {

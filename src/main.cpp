@@ -147,14 +147,23 @@ bool RunOpenAIUiActivityContractTests() {
         OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Codex, 9000},
         10000,
         4000);
-    const OpenAIMergedActivity one_codex =
+    const OpenAIMergedActivity one_codex_and_chat =
         MergeOpenAIActivity(1, chat_response, 10000, 4000);
-    const OpenAIMergedActivity two_codex =
+    const OpenAIMergedActivity two_codex_and_chat =
         MergeOpenAIActivity(2, chat_response, 10000, 4000);
+    const OpenAIMergedActivity one_codex_and_codex_response = MergeOpenAIActivity(
+        1,
+        OpenAIActivitySnapshot{OpenAIResponseState::Responding, OpenAISurface::Codex, 9000},
+        10000,
+        4000);
     if (fresh_chat.active_instances != 1 || fresh_chat.detail != L"ChatGPT is responding" ||
         codex_fallback.active_instances != 1 || codex_fallback.detail != L"Codex is responding" ||
-        one_codex.active_instances != 1 || one_codex.detail != L"1 Codex task is running" ||
-        two_codex.active_instances != 2 || two_codex.detail != L"2 Codex tasks are running") {
+        one_codex_and_chat.active_instances != 2 ||
+        one_codex_and_chat.detail != L"1 Codex task + ChatGPT response" ||
+        two_codex_and_chat.active_instances != 3 ||
+        two_codex_and_chat.detail != L"2 Codex tasks + ChatGPT response" ||
+        one_codex_and_codex_response.active_instances != 1 ||
+        one_codex_and_codex_response.detail != L"1 Codex task is running") {
         return false;
     }
 
@@ -207,6 +216,12 @@ bool RunOpenAIUiActivityContractTests() {
     if (DetectorLatchLabel(chat_result, DetectionMode::Tasks) != L"ChatGPT response") {
         return false;
     }
+    DetectionResult combined_openai;
+    combined_openai.provider = Provider::Codex;
+    combined_openai.activity_detail = L"1 Codex task + ChatGPT response";
+    if (DetectorLatchLabel(combined_openai, DetectionMode::Tasks) != L"OpenAI work") {
+        return false;
+    }
     DetectionResult codex_response;
     codex_response.provider = Provider::Codex;
     codex_response.activity_detail = L"Codex is responding";
@@ -228,10 +243,16 @@ int RunSelfTests() {
     const ULONGLONG now = GetTickCount64();
     LatchRegistry registry;
     if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000) ||
-        !registry.IsActive() || registry.Size() != 1 || registry.Find(L"test") == nullptr) {
+        !registry.IsActive() || registry.Size() != 1 || registry.ActiveInstanceCount() != 1 ||
+        registry.Find(L"test") == nullptr) {
         return 41;
     }
-    if (registry.Expire(now + 999) || !registry.Expire(now + 1000) || registry.IsActive()) {
+    if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000, 3) ||
+        registry.ActiveInstanceCount() != 3) {
+        return 41;
+    }
+    if (registry.Expire(now + 999) || !registry.Expire(now + 1000) || registry.IsActive() ||
+        registry.ActiveInstanceCount() != 0) {
         return 42;
     }
 
