@@ -49,7 +49,10 @@ target_link_libraries(AgentLatch PRIVATE
     dwmapi
     gdi32
     kernel32
+    ole32
+    oleaut32
     shell32
+    uiautomationcore
     user32
 )
 

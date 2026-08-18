@@ -2,7 +2,9 @@
 
 #include <windows.h>
 
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace agent_latch {
 
@@ -44,6 +46,7 @@ OpenAIMergedActivity MergeOpenAIActivity(
     ULONGLONG maximum_age);
 
 bool IsOpenAIComposerClass(const std::wstring& class_name);
+std::vector<DWORD> NormalizeOpenAITargets(std::vector<DWORD> process_ids);
 
 class OpenAIComposerClassifier {
 public:
@@ -55,6 +58,22 @@ private:
     std::wstring localized_idle_label_;
     std::wstring disabled_candidate_label_;
     unsigned int disabled_candidate_samples_{0};
+};
+
+class OpenAIUnifiedActivityProbe {
+public:
+    OpenAIUnifiedActivityProbe();
+    ~OpenAIUnifiedActivityProbe();
+
+    OpenAIUnifiedActivityProbe(const OpenAIUnifiedActivityProbe&) = delete;
+    OpenAIUnifiedActivityProbe& operator=(const OpenAIUnifiedActivityProbe&) = delete;
+
+    void SetTargets(std::vector<DWORD> process_ids);
+    OpenAIActivitySnapshot Snapshot() const;
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace agent_latch

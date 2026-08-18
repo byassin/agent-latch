@@ -178,6 +178,20 @@ bool RunOpenAIUiActivityContractTests() {
         unknown_surface.active_instances != 0 || !unknown_surface.detail.empty()) {
         return false;
     }
+
+    const std::vector<DWORD> normalized_targets =
+        NormalizeOpenAITargets(std::vector<DWORD>{42, 0, 7, 42, 7});
+    if (normalized_targets != std::vector<DWORD>{7, 42}) {
+        return false;
+    }
+    OpenAIUnifiedActivityProbe probe;
+    const OpenAIActivitySnapshot initial_snapshot = probe.Snapshot();
+    if (initial_snapshot.state != OpenAIResponseState::Unknown ||
+        initial_snapshot.surface != OpenAISurface::Unknown ||
+        initial_snapshot.observed_at != 0) {
+        return false;
+    }
+    probe.SetTargets(std::vector<DWORD>{0, 42, 42});
     return true;
 }
 
