@@ -1,5 +1,6 @@
 #include "openai_ui_activity.h"
 
+#include <objbase.h>
 #include <uiautomation.h>
 
 #include <algorithm>
