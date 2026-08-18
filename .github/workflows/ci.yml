@@ -38,6 +38,7 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "AgentLatch self-test failed with exit code $($process.ExitCode)."
           }
+          .\tests\version.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe -ExpectedVersion '0.2.4'
 
       - name: Test integration configuration merging
         if: matrix.arch == 'x64'
