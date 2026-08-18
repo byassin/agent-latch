@@ -255,6 +255,19 @@ CodexSessionLifecycle ReadLatestCodexSessionLifecycle(const std::filesystem::pat
 
 }  // namespace
 
+void ApplyOpenAIActivityToDetectionResult(
+    DetectionResult* result,
+    const OpenAIMergedActivity& activity,
+    ULONGLONG now) {
+    if (result == nullptr || activity.active_instances == 0) {
+        return;
+    }
+    result->active_task_instances = activity.active_instances;
+    result->recently_active = true;
+    result->last_activity = now;
+    result->activity_detail = activity.detail;
+}
+
 CodexSessionLifecycle LatestCodexSessionLifecycle(std::string_view json_lines) {
     const std::size_t started = json_lines.rfind(kCodexTaskStarted);
     const std::size_t completed = json_lines.rfind(kCodexTaskComplete);
@@ -408,6 +421,16 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         }
     }
 
+    std::vector<DWORD> packaged_openai_process_ids;
+    for (const ProcessEntry& process : processes) {
+        if (process.is_provider_root && process.provider == Provider::Codex &&
+            !process.activity_capable && _wcsicmp(process.executable.c_str(), L"ChatGPT.exe") == 0 &&
+            ContainsCaseInsensitive(process.executable_path, L"\\WindowsApps\\OpenAI.Codex_")) {
+            packaged_openai_process_ids.push_back(process.pid);
+        }
+    }
+    openai_probe_.SetTargets(std::move(packaged_openai_process_ids));
+
     ULONGLONG codex_desktop_creation_time = 0;
     for (const ProcessEntry& process : processes) {
         if (process.provider != Provider::Codex || !process.is_provider_root ||
@@ -420,6 +443,15 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
     }
     const unsigned int active_codex_tasks =
         ScanCodexDesktopSessions(now, codex_desktop_creation_time);
+    constexpr ULONGLONG kOpenAIActivityMaximumAgeMilliseconds = 4000;
+    const OpenAIMergedActivity openai_activity = MergeOpenAIActivity(
+        active_codex_tasks,
+        openai_probe_.Snapshot(),
+        now,
+        kOpenAIActivityMaximumAgeMilliseconds);
+    if (openai_activity.active_instances > 0) {
+        last_activity_[ProviderIndex(Provider::Codex)] = now;
+    }
 
     // Propagate a provider from each known agent root to its child process tree.
     for (std::size_t pass = 0; pass < processes.size(); ++pass) {
@@ -505,7 +537,7 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         result.provider = provider;
         result.running_instances = root_counts[ProviderIndex(provider)];
         result.activity_capable_instances = activity_root_counts[ProviderIndex(provider)];
-        result.active_task_instances = provider == Provider::Codex ? active_codex_tasks : 0;
+        result.active_task_instances = 0;
         const auto activity = last_activity_.find(ProviderIndex(provider));
         result.last_activity = activity == last_activity_.end() ? 0 : activity->second;
         result.recently_active = result.running_instances > 0 && result.last_activity != 0 &&
@@ -523,19 +555,20 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         }
         result.open_detail = open_detail.str();
 
-        std::wostringstream activity_detail;
-        if (result.active_task_instances == 1) {
-            activity_detail << L"1 Codex task is running";
-        } else if (result.active_task_instances > 1) {
-            activity_detail << result.active_task_instances << L" Codex tasks are running";
-        } else if (result.activity_capable_instances > 0) {
-            activity_detail << L"Agent process tree recently active";
-        } else if (result.running_instances > 0) {
-            activity_detail << L"App open; waiting for a task hook";
-        } else {
-            activity_detail << L"No running agent process";
+        if (provider == Provider::Codex) {
+            ApplyOpenAIActivityToDetectionResult(&result, openai_activity, now);
         }
-        result.activity_detail = activity_detail.str();
+        if (result.activity_detail.empty()) {
+            std::wostringstream activity_detail;
+            if (result.activity_capable_instances > 0) {
+                activity_detail << L"Agent process tree recently active";
+            } else if (result.running_instances > 0) {
+                activity_detail << L"App open; waiting for active work";
+            } else {
+                activity_detail << L"No running agent process";
+            }
+            result.activity_detail = activity_detail.str();
+        }
         results.push_back(std::move(result));
     }
     return results;

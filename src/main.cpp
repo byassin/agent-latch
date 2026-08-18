@@ -192,6 +192,24 @@ bool RunOpenAIUiActivityContractTests() {
         return false;
     }
     probe.SetTargets(std::vector<DWORD>{0, 42, 42});
+
+    DetectionResult chat_result;
+    ApplyOpenAIActivityToDetectionResult(
+        &chat_result,
+        OpenAIMergedActivity{1, L"ChatGPT is responding"},
+        12000);
+    if (chat_result.active_task_instances != 1 || !chat_result.recently_active ||
+        chat_result.last_activity != 12000 ||
+        chat_result.activity_detail != L"ChatGPT is responding") {
+        return false;
+    }
+    DetectionResult idle_result;
+    idle_result.activity_detail = L"waiting";
+    ApplyOpenAIActivityToDetectionResult(&idle_result, OpenAIMergedActivity{}, 12000);
+    if (idle_result.active_task_instances != 0 || idle_result.recently_active ||
+        idle_result.last_activity != 0 || idle_result.activity_detail != L"waiting") {
+        return false;
+    }
     return true;
 }
 
