@@ -20,6 +20,7 @@ struct HookTranslation {
     std::wstring label;
     std::wstring detail;
     ULONGLONG ttl_milliseconds{0};
+    unsigned int instance_count{1};
 };
 
 bool ExtractJsonString(std::string_view json, std::string_view field, std::wstring* value);

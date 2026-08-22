@@ -5,7 +5,11 @@ param(
     [Parameter(DontShow)]
     [switch]$RemoveHooks,
     [switch]$RemoveSettings,
-    [string]$ConfigRoot = ([Environment]::GetFolderPath('UserProfile'))
+    [string]$ConfigRoot = ([Environment]::GetFolderPath('UserProfile')),
+    [Parameter(DontShow)]
+    [switch]$NoStop,
+    [Parameter(DontShow)]
+    [string]$StartupRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,11 +27,23 @@ if ($PSCmdlet.ShouldProcess($InstallDirectory, 'Uninstall AgentLatch')) {
                 & $hookScript -AgentLatchPath $executable -ConfigRoot $ConfigRoot -Uninstall
             }
         }
-        & $executable --quit
-        Start-Sleep -Milliseconds 250
+        if (-not $NoStop) {
+            & $executable --quit
+            Start-Sleep -Milliseconds 250
+        }
     }
 
-    Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'AgentLatch' -ErrorAction SilentlyContinue
+    $expectedStartupCommand = '"{0}" --background' -f $executable
+    $currentStartupCommand = Get-ItemPropertyValue `
+        -Path $StartupRegistryPath `
+        -Name 'AgentLatch' `
+        -ErrorAction SilentlyContinue
+    if ([string]::Equals(
+            [string]$currentStartupCommand,
+            $expectedStartupCommand,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-ItemProperty -Path $StartupRegistryPath -Name 'AgentLatch' -ErrorAction SilentlyContinue
+    }
     if ($RemoveSettings) {
         Remove-Item -Path 'HKCU:\Software\AgentLatch' -Recurse -Force -ErrorAction SilentlyContinue
     }

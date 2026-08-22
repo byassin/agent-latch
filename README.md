@@ -9,32 +9,34 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep only while useful work is still running. It understands concurrent AI coding agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source and any safety grace finish.
 
 <p align="center">
-  <img src="assets/dashboard.png" width="500" alt="AgentLatch v0.2.4 dashboard showing an active Codex task">
+  <img src="assets/dashboard.png" width="500" alt="AgentLatch v0.2.5 dashboard confirming Windows sleep protection for an active Claude Code task">
 </p>
 
 ## Why AgentLatch
 
 - **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Google Antigravity/Gemini CLI.
-- **Concurrency-safe:** lifecycle-backed conversations, sessions, and subagents keep independent latches. A regular ChatGPT response counts alongside active Codex tasks; only an overlapping Codex composer response is deduplicated against its lifecycle task.
+- **Concurrency-safe:** lifecycle-backed conversations, sessions, subagents, and Claude background tasks keep independent latches. A regular ChatGPT response counts alongside active Codex tasks; only an overlapping Codex composer response is deduplicated against its lifecycle task.
 - **Your choice of precision:** set every provider independently to **Tasks**, **Open**, or **Off**.
 - **Task-first by default:** the unified OpenAI app's response state, Codex lifecycle records, and provider hooks track actual work; conservative CLI activity detection is the fallback.
 - **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
 - **Transparent:** the dashboard shows exactly what is keeping the machine awake and why.
+- **Self-healing:** a zero-CPU watchdog restarts AgentLatch after an abnormal exit, with a bounded restart-loop guard.
+- **Verifiable:** the dashboard distinguishes a detected latch from a Windows-accepted sleep-protection request, and a local diagnostic history explains every transition.
 - **Native and private:** one Win32 executable, no account, no service, no telemetry, and no administrator rights.
 
-AgentLatch uses a Windows power request. It does not jiggle the mouse, synthesize keystrokes, change the system power plan, or prevent a user-initiated shutdown or sleep.
+AgentLatch uses a Windows power request. While work is active, **PROTECTED** means Windows accepted `PowerRequestSystemRequired`; **ERROR** means the request failed and AgentLatch is retrying. It does not jiggle the mouse, synthesize keystrokes, change the system power plan, or prevent a user-initiated shutdown or sleep.
 
 ## Provider support
 
 | Provider | Tasks mode | Open mode | Lifecycle hooks |
 |---|---|---|---|
 | OpenAI / Codex | ChatGPT response state + native Codex lifecycle + hooks/CLI activity | Unified desktop app or CLI | Codex tasks; CLI sessions and subagents |
-| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions and subagents |
+| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions, subagents, background work, and task registry |
 | Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
 | OpenCode | CLI activity | CLI process | External lease API |
 | Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
 
-In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open; closing the provider or turning it **Off** releases that detector latch immediately. Hook stop events release their matching lifecycle latch immediately, and hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
+In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Claude `Stop` events retain the session latch when Claude reports in-flight background work, and task/subagent completion releases only the matching independent latch. Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open; closing the provider or turning it **Off** releases that detector latch immediately. Hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
 
 ## Install
 
@@ -43,7 +45,7 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 3. Double-click the setup executable.
 4. Choose whether AgentLatch should start with Windows, then select **Install**.
 
-Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. The exact stable version is always visible beside the AgentLatch name in the dashboard and in the window title.
+Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. If AgentLatch later exits abnormally, a companion watchdog restarts it automatically; choosing **Exit** remains final. The exact stable version is always visible beside the AgentLatch name in the dashboard and in the window title.
 
 Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. The Windows uninstaller removes only AgentLatch's own integration entries.
 
@@ -56,8 +58,9 @@ Windows may display a SmartScreen warning until project releases are Authenticod
 Each release includes a `.sha256` sidecar beside every setup executable and a combined `SHA256SUMS.txt`. Compare the installer hash with either published value before running it:
 
 ```powershell
-Get-FileHash .\AgentLatch-Setup-0.2.4-x64.exe -Algorithm SHA256
-Get-Content .\AgentLatch-Setup-0.2.4-x64.exe.sha256
+$installer = Get-Item .\AgentLatch-Setup-*-x64.exe
+Get-FileHash $installer.FullName -Algorithm SHA256
+Get-Content "$($installer.FullName).sha256"
 ```
 
 Replace the version and architecture in those filenames with the asset you downloaded.
@@ -82,6 +85,16 @@ Other commands:
 --hook PROVIDER  Accept one lifecycle event as JSON on stdin
 ```
 
+## Protection health and diagnostics
+
+The dashboard has three explicit system states:
+
+- **READY** — no work is latched and normal Windows sleep policy applies.
+- **PROTECTED** — one or more latches are active and Windows accepted the system keep-awake request.
+- **ERROR** — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
+
+Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, and restart events. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
+
 ## Build from source
 
 Requirements:
@@ -102,14 +115,15 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.4
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.5
 ```
 
 ## Design principles
 
 - A wake reason is a lease, never an unexplained global switch.
 - The display is allowed to turn off by default while the system stays awake.
-- Wake-status notifications can be disabled from the dashboard or tray menu.
+- Routine wake-status notifications can be disabled; a protection failure still raises one critical warning per failure episode.
+- Unexpected process exits restart automatically, while a normal tray Exit remains final.
 - Dashboard settings explain the difference between PC wake protection, keeping the screen on, and launching AgentLatch at Windows sign-in.
 - Every automatic path has a timeout or observable process state.
 - Provider integrations are additive and editable; existing hook configuration belongs to the user.

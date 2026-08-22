@@ -30,6 +30,7 @@ constexpr UINT kMenuSetupHooks = 108;
 constexpr UINT kMenuAbout = 109;
 constexpr UINT kMenuExit = 110;
 constexpr UINT kMenuToggleNotifications = 111;
+constexpr UINT kMenuOpenDiagnostics = 112;
 
 const GUID kTrayGuid = {
     0x8a9a17da,
@@ -101,6 +102,29 @@ UiAction MenuToAction(UINT command) {
     }
 }
 
+std::wstring LatchDiagnosticDetail(const std::vector<Latch>& latches) {
+    std::size_t instances = 0;
+    std::vector<Provider> providers;
+    for (const Latch& latch : latches) {
+        instances += latch.instance_count;
+        if (std::find(providers.begin(), providers.end(), latch.provider) == providers.end()) {
+            providers.push_back(latch.provider);
+        }
+    }
+    std::wostringstream detail;
+    detail << L"active=" << (!latches.empty() ? 1 : 0) << L" instances=" << instances;
+    if (!providers.empty()) {
+        detail << L" providers=";
+        for (std::size_t index = 0; index < providers.size(); ++index) {
+            if (index > 0) {
+                detail << L',';
+            }
+            detail << ProviderShortName(providers[index]);
+        }
+    }
+    return detail.str();
+}
+
 }  // namespace
 
 std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode) {
@@ -128,12 +152,16 @@ AgentLatchApp::~AgentLatchApp() {
 
 bool AgentLatchApp::Initialize(bool show_window) {
     settings_.Load();
+    diagnostics_.Write(
+        L"app_started",
+        L"version=" + std::wstring(kAgentLatchVersion) + L" pid=" + std::to_wstring(GetCurrentProcessId()));
     const UINT dpi = GetDpiForSystem();
     renderer_.Initialize(dpi);
 
     idle_icon_ = CreateStateIcon(RGB(45, 57, 75), RGB(203, 213, 225));
     active_icon_ = CreateStateIcon(RGB(18, 78, 63), RGB(52, 211, 153));
     manual_icon_ = CreateStateIcon(RGB(27, 57, 96), RGB(96, 165, 250));
+    warning_icon_ = CreateStateIcon(RGB(78, 48, 14), RGB(251, 191, 36));
 
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
@@ -211,6 +239,10 @@ void AgentLatchApp::Shutdown() {
         return;
     }
     shutting_down_ = true;
+    diagnostics_.Write(
+        L"app_stopped",
+        L"active=" + std::to_wstring(latches_.IsActive() ? 1 : 0) +
+            L" instances=" + std::to_wstring(latches_.ActiveInstanceCount()));
     power_request_.Apply(false, false);
     RemoveTrayIcon();
     if (window_ != nullptr && IsWindow(window_)) {
@@ -227,6 +259,10 @@ void AgentLatchApp::Shutdown() {
     if (manual_icon_ != nullptr) {
         DestroyIcon(manual_icon_);
         manual_icon_ = nullptr;
+    }
+    if (warning_icon_ != nullptr) {
+        DestroyIcon(warning_icon_);
+        warning_icon_ = nullptr;
     }
 }
 
@@ -283,13 +319,51 @@ void AgentLatchApp::UpdateDetectorLatches() {
 
 void AgentLatchApp::ReconcilePowerState() {
     const bool active = latches_.IsActive();
+    const std::vector<Latch> snapshot = latches_.Snapshot();
+    const std::wstring latch_detail = LatchDiagnosticDetail(snapshot);
+    if (latch_detail != last_latch_diagnostic_) {
+        diagnostics_.Write(L"latch_state", latch_detail);
+        last_latch_diagnostic_ = latch_detail;
+    }
+
     power_request_.Apply(active, active && settings_.keep_display_on);
+    const DWORD system_error = power_request_.LastSystemError();
+    const DWORD display_error = power_request_.LastDisplayError();
+    const bool system_confirmed = active && power_request_.IsAvailable() &&
+                                  power_request_.IsSystemRequired() && system_error == ERROR_SUCCESS;
+    const bool display_confirmed = !active || !settings_.keep_display_on ||
+                                   (power_request_.IsDisplayRequired() && display_error == ERROR_SUCCESS);
+    protection_failed_ = active && !system_confirmed;
+
+    std::wostringstream power_detail;
+    power_detail << L"active=" << (active ? 1 : 0)
+                 << L" system=" << (power_request_.IsSystemRequired() ? 1 : 0)
+                 << L" display=" << (power_request_.IsDisplayRequired() ? 1 : 0)
+                 << L" system_error=" << system_error
+                 << L" display_error=" << display_error;
+    const std::wstring power_diagnostic = power_detail.str();
+    if (power_diagnostic != last_power_diagnostic_) {
+        diagnostics_.Write(
+            protection_failed_ ? L"power_request_failed"
+                               : display_confirmed ? L"power_request_state" : L"display_request_failed",
+            power_diagnostic);
+        last_power_diagnostic_ = power_diagnostic;
+    }
+
+    if (protection_failed_ && !protection_failure_alerted_) {
+        ShowProtectionFailureNotification(system_error);
+        protection_failure_alerted_ = true;
+    } else if (!protection_failed_) {
+        protection_failure_alerted_ = false;
+    }
     if (!transition_state_initialized_) {
         last_active_state_ = active;
         transition_state_initialized_ = true;
     } else if (last_active_state_ != active) {
         last_active_state_ = active;
-        ShowTransitionNotification(active);
+        if (!active || !protection_failed_) {
+            ShowTransitionNotification(active);
+        }
     }
 }
 
@@ -410,7 +484,11 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, status.c_str());
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (settings_.keep_display_on ? MF_CHECKED : MF_UNCHECKED), kMenuToggleDisplay, L"Keep display on while latched");
-    AppendMenuW(menu, MF_STRING | (IsStartWithWindowsEnabled() ? MF_CHECKED : MF_UNCHECKED), kMenuToggleStartup, L"Start with Windows");
+    AppendMenuW(
+        menu,
+        MF_STRING | (IsStartWithWindowsEnabled() ? MF_CHECKED : MF_UNCHECKED),
+        kMenuToggleStartup,
+        L"Start automatically at sign-in");
     AppendMenuW(
         menu,
         MF_STRING | (settings_.notifications ? MF_CHECKED : MF_UNCHECKED),
@@ -421,6 +499,7 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
         MF_STRING,
         kMenuSetupHooks,
         L"Repair or update agent integrations...");
+    AppendMenuW(menu, MF_STRING, kMenuOpenDiagnostics, L"Open diagnostic history");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuAbout, L"About AgentLatch");
     AppendMenuW(menu, MF_STRING, kMenuExit, L"Exit");
@@ -431,6 +510,8 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
     DestroyMenu(menu);
     if (command == kMenuOpen) {
         ShowDashboard();
+    } else if (command == kMenuOpenDiagnostics) {
+        OpenDiagnostics();
     } else if (command == kMenuAbout) {
         ShowAbout();
     } else if (command == kMenuExit) {
@@ -475,7 +556,9 @@ void AgentLatchApp::LaunchHookSetup() {
 void AgentLatchApp::ShowAbout() {
     const std::wstring about_text =
         L"AgentLatch " + std::wstring(kAgentLatchVersion) +
-        L"\n\nA lightweight, open-source, agent-aware wake manager for Windows.\n\nNo account · No telemetry · No administrator rights";
+        L"\n\nA lightweight, open-source, agent-aware wake manager for Windows."
+        L"\n\nUnexpected-exit recovery · Local diagnostic history"
+        L"\nNo account · No telemetry · No administrator rights";
     MessageBoxW(
         window_,
         about_text.c_str(),
@@ -496,6 +579,36 @@ void AgentLatchApp::ShowTransitionNotification(bool active) {
         static_cast<int>(std::size(tray_icon_.szInfo)));
     tray_icon_.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
     Shell_NotifyIconW(NIM_MODIFY, &tray_icon_);
+}
+
+void AgentLatchApp::ShowProtectionFailureNotification(DWORD error) {
+    if (!tray_added_) {
+        return;
+    }
+    tray_icon_.uFlags = NIF_GUID | NIF_INFO;
+    lstrcpynW(
+        tray_icon_.szInfoTitle,
+        L"AgentLatch sleep protection failed",
+        static_cast<int>(std::size(tray_icon_.szInfoTitle)));
+    const std::wstring message =
+        L"Active agent work was detected, but Windows rejected the keep-awake request (error " +
+        std::to_wstring(error) + L"). AgentLatch will keep retrying.";
+    lstrcpynW(tray_icon_.szInfo, message.c_str(), static_cast<int>(std::size(tray_icon_.szInfo)));
+    tray_icon_.dwInfoFlags = NIIF_WARNING | NIIF_NOSOUND;
+    Shell_NotifyIconW(NIM_MODIFY, &tray_icon_);
+}
+
+void AgentLatchApp::OpenDiagnostics() {
+    const std::wstring path = diagnostics_.Path();
+    if (path.empty() || !FileExists(path)) {
+        MessageBoxW(window_, L"The diagnostic history is not available.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    const HINSTANCE result = ShellExecuteW(
+        window_, L"open", path.c_str(), nullptr, GetExecutableDirectory().c_str(), SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+        MessageBoxW(window_, L"Windows could not open the diagnostic history.", L"AgentLatch", MB_OK | MB_ICONERROR);
+    }
 }
 
 HICON AgentLatchApp::CreateStateIcon(COLORREF background, COLORREF foreground) const {
@@ -587,8 +700,12 @@ void AgentLatchApp::UpdateTrayIcon() {
     }
     const bool manual = latches_.HasKind(LatchKind::Manual) || latches_.HasKind(LatchKind::Timer);
     tray_icon_.uFlags = NIF_ICON | NIF_TIP | NIF_GUID | NIF_SHOWTIP;
-    tray_icon_.hIcon = latches_.IsActive() ? (manual ? manual_icon_ : active_icon_) : idle_icon_;
-    const std::wstring tip = latches_.IsActive()
+    tray_icon_.hIcon = protection_failed_
+                           ? warning_icon_
+                           : latches_.IsActive() ? (manual ? manual_icon_ : active_icon_) : idle_icon_;
+    const std::wstring tip = protection_failed_
+                                 ? L"AgentLatch · Sleep protection error"
+                                 : latches_.IsActive()
                                  ? L"AgentLatch · Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                                  : L"AgentLatch · Windows can sleep";
     lstrcpynW(tray_icon_.szTip, tip.c_str(), static_cast<int>(std::size(tray_icon_.szTip)));
@@ -630,7 +747,14 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             GetClientRect(window_, &client);
             DashboardState state;
             state.active = latches_.IsActive();
-            state.power_request_available = power_request_.IsAvailable() && power_request_.LastError() == ERROR_SUCCESS;
+            state.system_request_accepted = power_request_.IsAvailable() &&
+                                            power_request_.LastSystemError() == ERROR_SUCCESS &&
+                                            (!state.active || power_request_.IsSystemRequired());
+            state.system_request_error = power_request_.LastSystemError();
+            state.display_request_accepted = !state.active || !settings_.keep_display_on ||
+                                             (power_request_.IsDisplayRequired() &&
+                                              power_request_.LastDisplayError() == ERROR_SUCCESS);
+            state.display_request_error = power_request_.LastDisplayError();
             state.keep_display_on = settings_.keep_display_on;
             state.start_with_windows = IsStartWithWindowsEnabled();
             state.now = GetTickCount64();

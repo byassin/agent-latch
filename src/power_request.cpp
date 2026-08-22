@@ -10,7 +10,9 @@ PowerRequest::PowerRequest() {
         const_cast<PWSTR>(L"AgentLatch is keeping Windows awake while active work is latched.");
     handle_ = PowerCreateRequest(&reason);
     if (handle_ == INVALID_HANDLE_VALUE) {
-        last_error_ = GetLastError();
+        creation_error_ = GetLastError();
+        system_error_ = creation_error_;
+        display_error_ = creation_error_;
     }
 }
 
@@ -33,8 +35,9 @@ bool PowerRequest::Apply(bool system_required, bool display_required) {
                                             : PowerClearRequest(handle_, PowerRequestSystemRequired);
         if (result) {
             system_required_ = system_required;
+            system_error_ = ERROR_SUCCESS;
         } else {
-            last_error_ = GetLastError();
+            system_error_ = GetLastError();
             success = false;
         }
     }
@@ -44,14 +47,11 @@ bool PowerRequest::Apply(bool system_required, bool display_required) {
                                              : PowerClearRequest(handle_, PowerRequestDisplayRequired);
         if (result) {
             display_required_ = display_required;
+            display_error_ = ERROR_SUCCESS;
         } else {
-            last_error_ = GetLastError();
+            display_error_ = GetLastError();
             success = false;
         }
-    }
-
-    if (success) {
-        last_error_ = ERROR_SUCCESS;
     }
     return success;
 }
@@ -65,7 +65,18 @@ bool PowerRequest::IsDisplayRequired() const {
 }
 
 DWORD PowerRequest::LastError() const {
-    return last_error_;
+    if (creation_error_ != ERROR_SUCCESS) {
+        return creation_error_;
+    }
+    return system_error_ != ERROR_SUCCESS ? system_error_ : display_error_;
+}
+
+DWORD PowerRequest::LastSystemError() const {
+    return creation_error_ != ERROR_SUCCESS ? creation_error_ : system_error_;
+}
+
+DWORD PowerRequest::LastDisplayError() const {
+    return creation_error_ != ERROR_SUCCESS ? creation_error_ : display_error_;
 }
 
 bool PowerRequest::IsAvailable() const {

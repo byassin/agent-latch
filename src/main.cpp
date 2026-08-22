@@ -1,4 +1,5 @@
 #include "app.h"
+#include "diagnostics.h"
 #include "hook_bridge.h"
 #include "ipc.h"
 #include "latch_registry.h"
@@ -6,6 +7,7 @@
 #include "power_request.h"
 #include "settings.h"
 #include "types.h"
+#include "watchdog.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -57,6 +59,26 @@ bool ParseSeconds(const std::wstring& text, ULONGLONG* milliseconds) {
     }
     *milliseconds = static_cast<ULONGLONG>(seconds) * 1000;
     return true;
+}
+
+bool ParseDwordValue(const std::wstring& text, DWORD* value) {
+    if (value == nullptr || text.empty()) {
+        return false;
+    }
+    wchar_t* end = nullptr;
+    const unsigned long long parsed = std::wcstoull(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != L'\0' || parsed > MAXDWORD) {
+        return false;
+    }
+    *value = static_cast<DWORD>(parsed);
+    return true;
+}
+
+unsigned int ReadRestartAttempt(const CommandLine& command_line) {
+    DWORD attempt = 0;
+    return ParseDwordValue(command_line.ValueAfter(L"--restart-attempt"), &attempt) && attempt <= 100
+               ? static_cast<unsigned int>(attempt)
+               : 0u;
 }
 
 bool RunOpenAIUiActivityContractTests() {
@@ -274,6 +296,42 @@ int RunSelfTests() {
         subagent.label.find(L"Explore") == std::wstring::npos) {
         return 45;
     }
+    const std::string_view claude_background_stop =
+        R"({"session_id":"session-2","cwd":"C:\\work\\demo","hook_event_name":"Stop","background_tasks":[{"id":"task-1","type":"subagent","status":"running","description":"private prompt, with ] punctuation"},{"id":"task-2","type":"shell","status":"running","command":"build --flag=\"a,b\""}]})";
+    const HookTranslation background_stop =
+        TranslateHookEvent(Provider::ClaudeCode, claude_background_stop);
+    if (background_stop.action != HookAction::Upsert ||
+        background_stop.id != L"claude:session-2" ||
+        background_stop.label != L"Claude Code background work" ||
+        background_stop.detail != L"demo" || background_stop.instance_count != 2 ||
+        background_stop.label.find(L"private") != std::wstring::npos) {
+        return 60;
+    }
+    const std::string_view claude_idle_stop =
+        R"({"session_id":"session-2","hook_event_name":"Stop","background_tasks":[]})";
+    const HookTranslation idle_stop = TranslateHookEvent(Provider::ClaudeCode, claude_idle_stop);
+    if (idle_stop.action != HookAction::Remove || idle_stop.id != L"claude:session-2") {
+        return 61;
+    }
+    const std::string_view claude_task_created =
+        R"({"session_id":"session-2","cwd":"C:\\work\\demo","hook_event_name":"TaskCreated","task_id":"task-42","task_subject":"Private customer details"})";
+    const std::string_view claude_task_completed =
+        R"({"session_id":"session-2","hook_event_name":"TaskCompleted","task_id":"task-42","task_subject":"Private customer details"})";
+    const HookTranslation task_created = TranslateHookEvent(Provider::ClaudeCode, claude_task_created);
+    const HookTranslation task_completed = TranslateHookEvent(Provider::ClaudeCode, claude_task_completed);
+    if (task_created.action != HookAction::Upsert ||
+        task_created.id != L"claude:session-2:task:task-42" ||
+        task_created.label != L"Claude Code background task" ||
+        task_created.label.find(L"customer") != std::wstring::npos ||
+        task_completed.action != HookAction::Remove || task_completed.id != task_created.id) {
+        return 62;
+    }
+    const HookTranslation task_without_identity = TranslateHookEvent(
+        Provider::ClaudeCode,
+        R"({"session_id":"session-2","hook_event_name":"TaskCreated"})");
+    if (task_without_identity.action != HookAction::None || !task_without_identity.id.empty()) {
+        return 63;
+    }
     const std::string_view unicode_json = R"({"value":"Agent \u2713"})";
     std::wstring unicode_value;
     if (!ExtractJsonString(unicode_json, "value", &unicode_value) || unicode_value != L"Agent ✓") {
@@ -371,13 +429,35 @@ int RunSelfTests() {
 
     PowerRequest request;
     if (!request.IsAvailable() || !request.Apply(true, false) || !request.IsSystemRequired() ||
-        !request.Apply(false, false) || request.IsSystemRequired()) {
+        request.LastSystemError() != ERROR_SUCCESS || !request.Apply(false, false) ||
+        request.IsSystemRequired() || request.LastSystemError() != ERROR_SUCCESS) {
         return 51;
+    }
+    if (EvaluateRestart(ERROR_SUCCESS, 1000, 0).restart ||
+        !EvaluateRestart(ERROR_ACCESS_DENIED, 61000, 3).restart ||
+        EvaluateRestart(ERROR_ACCESS_DENIED, 1000, 3).restart ||
+        EvaluateRestart(ERROR_ACCESS_DENIED, 1000, 2).next_attempt != 3) {
+        return 58;
+    }
+    const std::wstring diagnostic = FormatDiagnosticRecord(
+        L"2026-08-22T00:00:00.000Z",
+        L"power_request\ninvalid",
+        L"active=1\tinstances=2\r\n");
+    if (diagnostic !=
+        L"2026-08-22T00:00:00.000Z\tpower_request invalid\tactive=1 instances=2\r\n") {
+        return 59;
     }
     return 0;
 }
 
 int HandleUtilityCommand(const CommandLine& command_line) {
+    if (command_line.Has(L"--watchdog")) {
+        DWORD process_id = 0;
+        if (!ParseDwordValue(command_line.ValueAfter(L"--watchdog"), &process_id) || process_id == 0) {
+            return 70;
+        }
+        return RunWatchdog(process_id, ReadRestartAttempt(command_line));
+    }
     if (command_line.Has(L"--show")) {
         if (EnsureBackgroundInstance()) {
             SendIpcMessage(L"SHOW");
@@ -457,6 +537,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
         }
         CloseHandle(mutex);
         return 0;
+    }
+
+    const unsigned int restart_attempt = ReadRestartAttempt(command_line);
+    DiagnosticsLog startup_diagnostics;
+    if (!LaunchWatchdogForCurrentProcess(restart_attempt)) {
+        startup_diagnostics.Write(
+            L"watchdog_launch_failed",
+            L"pid=" + std::to_wstring(GetCurrentProcessId()) +
+                L" error=" + std::to_wstring(GetLastError()));
     }
 
     AgentLatchApp app(instance);

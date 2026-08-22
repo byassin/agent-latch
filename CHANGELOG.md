@@ -4,6 +4,24 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+### Added
+
+- A zero-CPU companion watchdog now restarts AgentLatch after an abnormal exit, with a bounded three-attempt rapid-failure guard. Normal tray Exit and installer shutdown remain final.
+- A local, rotating diagnostic history records application lifetime, latch counts and provider names, Windows power-request results, and watchdog recovery events without recording prompts, responses, workspaces, or conversation content.
+- Protection failures now raise a dedicated warning even when routine wake-status notifications are disabled.
+
+### Changed
+
+- The dashboard now reports **READY**, **PROTECTED**, or **ERROR** so an active latch is clearly distinguished from a Windows-accepted system power request.
+- Sign-in startup and notification descriptions now explain automatic restart behavior and critical protection alerts.
+- The tray menu can open the local diagnostic history directly.
+
+### Fixed
+
+- Claude Code no longer releases its session latch when a foreground turn stops with background agents, shell jobs, monitors, workflows, teammates, cloud sessions, or MCP work still in flight. Claude task-registry entries now receive independent latches through `TaskCreated` and `TaskCompleted`.
+- System and display power-request errors are tracked independently, retried, and surfaced with their Windows error codes.
+- Portable install tests and non-production uninstallers no longer stop the running production instance or delete a startup entry that points to another AgentLatch installation.
+
 ## [0.2.4] - 2026-08-17
 
 ### Added

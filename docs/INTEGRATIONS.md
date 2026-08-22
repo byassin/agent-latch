@@ -70,7 +70,9 @@ Codex CLI also has conservative process-activity detection as a fallback. See th
 
 Configuration: `%USERPROFILE%\.claude\settings.json`
 
-Configured events include prompt submission, tool use, subagent start/stop, stop failure, session end, and normal stop. Session and `agent_id` fields give concurrent Claude subagents independent latches.
+Configured events include prompt submission, individual and batched tool use, subagent start/stop, task creation/completion, stop failure, session end, and normal stop. Session, `agent_id`, and `task_id` fields give concurrent Claude work independent latches.
+
+Claude includes an in-flight `background_tasks` summary when the foreground turn stops but shell work, subagents, monitors, workflows, teammates, cloud sessions, or MCP tasks are still running. AgentLatch uses only the number of entries in that array: a non-empty summary keeps the session latch and reports the concurrent count, while a later empty `Stop` releases it. Task subjects, descriptions, commands, model output, and transcript content are ignored. `TaskCreated` and `TaskCompleted` provide an additional independent lifecycle for Claude's task registry and agent-team work.
 
 ```text
 "C:\path\to\AgentLatch.exe" --hook claude
@@ -126,3 +128,9 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 - A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.
 - Disabling a provider in the dashboard removes that provider's automatic and hook latches immediately.
+
+## Diagnosing a missed latch or sleep
+
+First check the dashboard state. **READY** means no active source was detected. **PROTECTED** means work was detected and Windows accepted the system keep-awake request. **ERROR** means work was detected but the Windows request failed and is being retried.
+
+Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **PROTECTED**.

@@ -88,7 +88,7 @@ std::vector<char> ReadStandardInput() {
 
 bool IsReleaseEvent(const std::wstring& event_name) {
     return event_name == L"stop" || event_name == L"sessionend" || event_name == L"stopfailure" ||
-           event_name == L"afteragentresponse";
+           event_name == L"afteragentresponse" || event_name == L"taskcompleted";
 }
 
 bool IsSubagentStopEvent(const std::wstring& event_name) {
@@ -133,6 +133,89 @@ bool ExtractJsonBoolean(std::string_view json, std::string_view field, bool* val
     if (json.substr(cursor, 5) == "false") {
         *value = false;
         return true;
+    }
+    return false;
+}
+
+bool CountJsonArrayElements(std::string_view json, std::string_view field, unsigned int* count) {
+    if (count == nullptr) {
+        return false;
+    }
+    std::size_t cursor = json.find(field);
+    while (cursor != std::string_view::npos &&
+           (cursor == 0 || cursor + field.size() >= json.size() || json[cursor - 1] != '"' ||
+            json[cursor + field.size()] != '"')) {
+        cursor = json.find(field, cursor + 1);
+    }
+    if (cursor == std::string_view::npos) {
+        return false;
+    }
+    cursor += field.size() + 1;
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+    if (cursor >= json.size() || json[cursor++] != ':') {
+        return false;
+    }
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+    if (cursor >= json.size() || json[cursor++] != '[') {
+        return false;
+    }
+
+    unsigned int elements = 0;
+    unsigned int depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    bool element_started = false;
+    for (; cursor < json.size(); ++cursor) {
+        const char character = json[cursor];
+        if (in_string) {
+            if (escaped) {
+                escaped = false;
+            } else if (character == '\\') {
+                escaped = true;
+            } else if (character == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (character == '"') {
+            in_string = true;
+            element_started = true;
+            continue;
+        }
+        if (character == '{' || character == '[') {
+            ++depth;
+            element_started = true;
+            continue;
+        }
+        if (character == '}' || character == ']') {
+            if (character == ']' && depth == 0) {
+                if (element_started) {
+                    ++elements;
+                }
+                *count = elements;
+                return true;
+            }
+            if (depth == 0) {
+                return false;
+            }
+            --depth;
+            continue;
+        }
+        if (character == ',' && depth == 0) {
+            if (!element_started) {
+                return false;
+            }
+            ++elements;
+            element_started = false;
+            continue;
+        }
+        if (!std::isspace(static_cast<unsigned char>(character))) {
+            element_started = true;
+        }
     }
     return false;
 }
@@ -262,6 +345,7 @@ HookTranslation TranslateHookEvent(
     std::wstring session_id;
     std::wstring agent_id;
     std::wstring agent_type;
+    std::wstring task_id;
     std::wstring cwd;
     event_name.assign(event_override);
     if (event_name.empty()) {
@@ -281,6 +365,7 @@ HookTranslation TranslateHookEvent(
         }
     }
     ExtractJsonString(json, "agent_type", &agent_type);
+    ExtractJsonString(json, "task_id", &task_id);
     ExtractJsonString(json, "cwd", &cwd);
     if (cwd.empty()) {
         std::wstring workspace;
@@ -292,16 +377,24 @@ HookTranslation TranslateHookEvent(
     event_name = Lowercase(event_name);
     session_id = SanitizeMessageField(session_id, 120);
     agent_id = SanitizeMessageField(agent_id, 120);
+    task_id = SanitizeMessageField(task_id, 120);
     if (event_name.empty() || session_id.empty()) {
         return translation;
     }
 
     const bool subagent_event = event_name.find(L"subagent") != std::wstring::npos ||
                                 event_name == L"teammateidle";
+    const bool task_event = event_name == L"taskcreated" || event_name == L"taskcompleted";
     const std::wstring base_id = std::wstring(ProviderKey(provider)) + L":" + session_id;
-    translation.id = subagent_event && !agent_id.empty() ? base_id + L":" + agent_id : base_id;
+    if (task_event && task_id.empty()) {
+        return translation;
+    }
+    translation.id = task_event ? base_id + L":task:" + task_id
+                                : subagent_event && !agent_id.empty() ? base_id + L":" + agent_id : base_id;
     translation.label = ProviderName(provider);
-    if (subagent_event) {
+    if (task_event) {
+        translation.label += L" background task";
+    } else if (subagent_event) {
         translation.label += agent_type.empty() ? L" subagent" : L" · " + SanitizeMessageField(agent_type, 60);
     } else {
         translation.label += L" task";
@@ -311,21 +404,31 @@ HookTranslation TranslateHookEvent(
 
     bool fully_idle = true;
     const bool has_fully_idle = ExtractJsonBoolean(json, "fullyIdle", &fully_idle);
+    unsigned int background_task_count = 0;
+    const bool has_background_tasks =
+        CountJsonArrayElements(json, "background_tasks", &background_task_count);
+    const bool has_background_work = event_name == L"stop" && has_background_tasks &&
+                                     background_task_count > 0;
     if ((IsReleaseEvent(event_name) || IsSubagentStopEvent(event_name)) &&
-        !(event_name == L"stop" && has_fully_idle && !fully_idle)) {
+        !(event_name == L"stop" && ((has_fully_idle && !fully_idle) || has_background_work))) {
         translation.action = HookAction::Remove;
         return translation;
     }
 
     // SessionStart alone does not mean an agent is working. Every configured
     // turn/tool event acquires or renews a bounded lease.
-    const bool background_stop = event_name == L"stop" && has_fully_idle && !fully_idle;
+    const bool background_stop =
+        event_name == L"stop" && ((has_fully_idle && !fully_idle) || has_background_work);
     if (event_name == L"sessionstart" || (!IsActivityEvent(event_name) && !background_stop)) {
         return translation;
     }
 
     translation.action = HookAction::Upsert;
     translation.ttl_milliseconds = kHookLeaseTtlMilliseconds;
+    if (has_background_work) {
+        translation.label = std::wstring(ProviderName(provider)) + L" background work";
+        translation.instance_count = std::max(1u, background_task_count);
+    }
     return translation;
 }
 
@@ -358,7 +461,8 @@ int HandleHookInvocation(Provider provider, std::wstring_view event_override) {
                                            LatchKind::Hook,
                                            translation.label,
                                            translation.detail,
-                                           translation.ttl_milliseconds);
+                                           translation.ttl_milliseconds,
+                                           translation.instance_count);
     SendIpcMessage(message);
     WriteHookResponse(provider, event_name);
     return 0;

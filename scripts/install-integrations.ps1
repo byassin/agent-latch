@@ -332,7 +332,19 @@ if ($providers -contains 'Claude') {
         -Path (Join-Path $ConfigRoot '.claude\settings.json') `
         -Command "$quotedExecutable --hook claude" `
         -ProviderKey 'claude' `
-        -Events @('UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd') `
+        -Events @(
+            'UserPromptSubmit',
+            'PreToolUse',
+            'PostToolUse',
+            'PostToolBatch',
+            'SubagentStart',
+            'SubagentStop',
+            'TaskCreated',
+            'TaskCompleted',
+            'Stop',
+            'StopFailure',
+            'SessionEnd'
+        ) `
         -Direct $false
 }
 if ($providers -contains 'Cursor') {

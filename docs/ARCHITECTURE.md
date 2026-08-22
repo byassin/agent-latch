@@ -1,6 +1,6 @@
 # Architecture
 
-AgentLatch is a single native Win32 process with no service, daemon, web runtime, or elevated component.
+AgentLatch is one native Win32 executable running in two lightweight modes: the tray application and a blocking companion watchdog. It has no service, web runtime, administrator requirement, or elevated component.
 
 ```text
 Agent processes ── process/activity scan ─┐
@@ -9,7 +9,10 @@ OpenAI composer ── UI Automation worker ──┤
                                          │
 Lifecycle hooks ── JSON stdin / WM_COPYDATA ──> Latch registry ──> Windows power request
                                          │            │
-Local tools ───── renewable lease CLI ───┘            └──> Dashboard + tray state
+Local tools ───── renewable lease CLI ───┘            ├──> Dashboard + tray state
+                                                      └──> Bounded diagnostic history
+
+Main process <──── wait/restart on abnormal exit ──── Watchdog process
 ```
 
 ## Components
@@ -21,12 +24,16 @@ Local tools ───── renewable lease CLI ───┘            └─�
 | `HookBridge` | Reads bounded JSON hook input, extracts lifecycle identity, and converts events to lease operations. |
 | `LatchRegistry` | Owns independent detector, hook, and external latches; expires bounded leases. |
 | `PowerRequest` | Creates and reconciles Windows `PowerSetRequest` system/display requirements. |
+| `DiagnosticsLog` | Appends bounded, content-free protection and lifecycle events to a rotating local log. |
+| `Watchdog` | Waits without polling, restarts an abnormally terminated main process, and stops after three rapid failures. |
 | `AgentLatchApp` | Hosts the message loop, tray icon, single-instance IPC, settings, and reconciliation cycle. |
 | `DashboardRenderer` | Paints the DPI-aware interface and hit targets with native GDI. |
 
 ## Power semantics
 
-When the registry changes from zero to one active latch, AgentLatch sets `PowerRequestSystemRequired`. When the registry returns to zero, it clears that request. If **Keep display on** is enabled, it also sets `PowerRequestDisplayRequired` for the same active interval.
+When the registry changes from zero to one active latch, AgentLatch sets `PowerRequestSystemRequired`. When the registry returns to zero, it clears that request. If **Keep display on** is enabled, it also sets `PowerRequestDisplayRequired` for the same active interval. Failed operations retain their desired/actual mismatch, so the two-second reconciliation cycle retries them. System and display errors are tracked independently.
+
+The dashboard reports **PROTECTED** only when an active latch exists, the power-request handle is valid, Windows accepted the system request, and the cached system state is set. A failed system request changes the dashboard and tray to **ERROR**, records the Windows error code, and emits one critical warning per failure episode. Routine transition notifications remain optional.
 
 The request blocks automatic idle sleep. It does not block an explicit user sleep, shutdown, restart, or critical system action.
 
@@ -50,13 +57,15 @@ For a normal installed copy, the integration installer records that Claude lifec
 
 Both OpenAI desktop sources are read-only and bounded. The UI Automation probe reads only process/control metadata: process ID, control type, class name, enabled/offscreen state, accessibility command name, and nearest Document name. It never reads conversation messages, prompt edits, clipboard data, or app databases and never sends input. Every five seconds the Codex session scanner recursively discovers JSONL files across the full local session tree, then checks at most the 64 most recently written sessions plus any cached session that was previously active. This allows a task resumed from an older date folder to remain visible. Files last written before the current Codex desktop process generation are rejected, with a small timestamp tolerance, so an orphaned `task_started` marker from a previous app run cannot create a stale latch. The scanner reads backward in 64 KiB blocks until it finds the latest lifecycle marker, and caches results by path, size, and write time. Each eligible session whose latest marker is `task_started` contributes one active task instance; a later `task_complete` removes that authoritative active instance on the next scan, after which the detector grace described above may still apply.
 
-Hooks are more precise because they name individual sessions, conversations, and subagents. Stop events release their latch immediately; leases are still bounded so a crashed hook source self-recovers. Antigravity's `fullyIdle` signal prevents a stop event from releasing while background work remains.
+Hooks are more precise because they name individual sessions, conversations, subagents, and Claude task-registry entries. Normal stop and completion events release only their matching latch; leases remain bounded so a crashed hook source self-recovers. A Claude `Stop` with a non-empty `background_tasks` array retains the session latch and uses the array length as its concurrent instance count. AgentLatch does not inspect the entries' descriptions, commands, or other content. `TaskCreated` and `TaskCompleted` use `session_id` plus `task_id` as an independent identity, so foreground completion cannot release background task work. Antigravity's `fullyIdle` signal provides the equivalent background-work guard for that provider.
 
 ## Integration and installer safety
 
 Provider configuration updates are additive and idempotent. The integration script parses the existing JSON, removes stale AgentLatch commands for the same provider, preserves unrelated entries, writes a timestamped sibling backup, and replaces the destination through a temporary file. For Codex and Claude it also stores per-user integration-expected, installed-command, and hook-seen health values under `HKCU\Software\AgentLatch`.
 
-The Windows setup executable is per-user and uses one stable production AppId so normal upgrades replace the previous version. Before copying files it asks the existing AgentLatch process to exit, then installs integrations automatically and records standard startup and uninstall entries. Setup integration tests are compiled with a random, non-production AppId and are refused by the test harness without a matching marker file, preventing tests from overwriting a real installation's uninstall registration.
+The Windows setup executable is per-user and uses one stable production AppId so normal upgrades replace the previous version. Before copying files it asks the existing AgentLatch process to exit normally, then installs integrations automatically and records standard startup and uninstall entries. Normal exit code zero tells the watchdog not to restart the old copy. Setup integration tests are compiled with a random, non-production AppId and are refused by the test harness without a matching marker file, preventing tests from overwriting a real installation's uninstall registration.
+
+The main process launches a companion copy in `--watchdog` mode after it owns the single-instance mutex. The watchdog blocks on the main-process handle without polling or holding a power request. Exit code zero is final. A nonzero exit restarts AgentLatch in the background after two seconds. Runtime of at least 60 seconds resets the rapid-failure count; otherwise only three consecutive restart attempts are allowed. A restarted main process creates its own successor watchdog.
 
 ## IPC and trust boundary
 
@@ -67,3 +76,5 @@ AgentLatch assumes other processes running as the same signed-in user are within
 ## Persistence
 
 Small settings are stored under `HKCU\Software\AgentLatch`. The optional startup entry is stored under the current user's standard Windows Run key. Active latches are intentionally not persisted across app or system restarts.
+
+`%LOCALAPPDATA%\AgentLatch\diagnostics.log` stores privacy-safe state transitions. It rotates to `diagnostics.previous.log` at 512 KiB, so total diagnostic history is bounded to roughly 1 MiB. The normal uninstaller removes both files.

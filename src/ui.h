@@ -24,7 +24,10 @@ enum class UiAction {
 
 struct DashboardState {
     bool active{false};
-    bool power_request_available{true};
+    bool system_request_accepted{true};
+    bool display_request_accepted{true};
+    DWORD system_request_error{ERROR_SUCCESS};
+    DWORD display_request_error{ERROR_SUCCESS};
     bool keep_display_on{false};
     bool start_with_windows{false};
     ULONGLONG now{0};
