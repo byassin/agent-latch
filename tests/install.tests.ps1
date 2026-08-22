@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $AgentLatchPath = [System.IO.Path]::GetFullPath($AgentLatchPath)
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("AgentLatchInstallTests-" + [guid]::NewGuid().ToString('N'))
+$startupTestKey = 'HKCU:\Software\AgentLatch-InstallTests-' + [guid]::NewGuid().ToString('N') + '\Run'
 
 function Count-CommandPrefix {
     param($Value, [string]$ExpectedPrefix)
@@ -62,9 +63,20 @@ try {
         }
     }
 
-    & (Join-Path $installDirectory 'uninstall.ps1') -InstallDirectory $installDirectory -ConfigRoot $configRoot -Confirm:$false
+    New-Item -Path $startupTestKey -Force | Out-Null
+    $unrelatedStartup = '"C:\Keep\UnrelatedAgentLatch.exe" --background'
+    New-ItemProperty -Path $startupTestKey -Name AgentLatch -Value $unrelatedStartup -PropertyType String -Force | Out-Null
+    & (Join-Path $installDirectory 'uninstall.ps1') `
+        -InstallDirectory $installDirectory `
+        -ConfigRoot $configRoot `
+        -NoStop `
+        -StartupRegistryPath $startupTestKey `
+        -Confirm:$false
     if (Test-Path -LiteralPath $installDirectory) {
         throw 'The uninstaller did not remove the AgentLatch installation directory.'
+    }
+    if ((Get-ItemPropertyValue -Path $startupTestKey -Name AgentLatch) -ne $unrelatedStartup) {
+        throw 'The uninstaller removed an unrelated startup entry.'
     }
     foreach ($entry in @(
         @{ Name = 'Codex'; Path = (Join-Path $configRoot '.codex\hooks.json'); Provider = 'codex' },
@@ -81,16 +93,38 @@ try {
 
     $skipInstallDirectory = Join-Path $testRoot 'installed-skip-hooks'
     $skipConfigRoot = Join-Path $testRoot 'config-skip-hooks'
-    & $installer -InstallDirectory $skipInstallDirectory -ConfigRoot $skipConfigRoot -SkipHooks -NoStop -NoLaunch
+    & $installer `
+        -InstallDirectory $skipInstallDirectory `
+        -ConfigRoot $skipConfigRoot `
+        -SkipHooks `
+        -NoStop `
+        -NoLaunch `
+        -StartWithWindows `
+        -StartupRegistryPath $startupTestKey
     if (-not (Test-Path -LiteralPath (Join-Path $skipInstallDirectory 'AgentLatch.exe') -PathType Leaf)) {
         throw 'The process-only installer did not copy AgentLatch.exe.'
     }
     if (Test-Path -LiteralPath $skipConfigRoot) {
         throw '-SkipHooks unexpectedly changed agent configuration.'
     }
+    $expectedStartup = '"{0}" --background' -f (Join-Path $skipInstallDirectory 'AgentLatch.exe')
+    if ((Get-ItemPropertyValue -Path $startupTestKey -Name AgentLatch) -ne $expectedStartup) {
+        throw 'The portable installer did not write its isolated startup entry.'
+    }
+    & (Join-Path $skipInstallDirectory 'uninstall.ps1') `
+        -InstallDirectory $skipInstallDirectory `
+        -KeepHooks `
+        -NoStop `
+        -StartupRegistryPath $startupTestKey `
+        -Confirm:$false
+    $remainingStartup = (Get-ItemProperty -Path $startupTestKey -ErrorAction SilentlyContinue).PSObject.Properties['AgentLatch']
+    if ($null -ne $remainingStartup) {
+        throw 'The uninstaller did not remove its matching isolated startup entry.'
+    }
 
     Write-Host 'Default installer tests passed.'
 } finally {
+    Remove-Item -Path ($startupTestKey -replace '\\Run$','') -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $testRoot) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }

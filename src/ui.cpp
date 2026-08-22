@@ -253,11 +253,17 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         kFaint);
 
     RECT hero{margin, Scale(70), content_right, Scale(143)};
-    FillRoundedRectangle(memory, hero, Scale(14), state.active ? RGB(15, 38, 33) : kSurface, state.active ? RGB(31, 91, 72) : kBorder);
-    DrawStatusDot(memory, hero.left + Scale(22), hero.top + Scale(25), Scale(5), state.active ? kActive : kIdle);
-    RECT hero_label{hero.left + Scale(37), hero.top + Scale(10), hero.right - Scale(94), hero.top + Scale(38)};
-    const std::wstring headline = state.active ? L"Keeping your PC awake" : L"Ready when your agents run";
-    DrawTextBlock(memory, headline, hero_label, heading_font_, state.active ? kActive : kText);
+    const bool protection_error = !state.system_request_accepted;
+    const COLORREF hero_fill = protection_error ? RGB(49, 34, 15) : state.active ? RGB(15, 38, 33) : kSurface;
+    const COLORREF hero_border = protection_error ? RGB(120, 78, 20) : state.active ? RGB(31, 91, 72) : kBorder;
+    const COLORREF hero_accent = protection_error ? kWarning : state.active ? kActive : kIdle;
+    FillRoundedRectangle(memory, hero, Scale(14), hero_fill, hero_border);
+    DrawStatusDot(memory, hero.left + Scale(22), hero.top + Scale(25), Scale(5), hero_accent);
+    RECT hero_label{hero.left + Scale(37), hero.top + Scale(10), hero.right - Scale(112), hero.top + Scale(38)};
+    const std::wstring headline = protection_error
+                                      ? (state.active ? L"Windows may go to sleep" : L"Protection needs attention")
+                                      : (state.active ? L"Windows sleep protection confirmed" : L"Protection ready");
+    DrawTextBlock(memory, headline, hero_label, heading_font_, protection_error || state.active ? hero_accent : kText);
 
     RECT hero_detail{hero.left + Scale(22), hero.top + Scale(39), hero.right - Scale(20), hero.bottom - Scale(7)};
     std::size_t active_instance_count = 0;
@@ -266,12 +272,18 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
     }
 
     std::wstring detail;
-    if (!state.power_request_available) {
-        detail = L"Windows rejected the power request.";
+    if (protection_error) {
+        detail = state.active ? L"Keep-awake request failed · error " : L"Windows power request error ";
+        detail += std::to_wstring(state.system_request_error) + L" · retrying";
     } else if (state.active) {
         detail = std::to_wstring(active_instance_count) +
                  (active_instance_count == 1 ? L" latch is active" : L" latches are active");
-        detail += state.keep_display_on ? L" · display stays on" : L" · display may sleep";
+        if (state.keep_display_on && !state.display_request_accepted) {
+            detail += L" · screen request failed (error " +
+                      std::to_wstring(state.display_request_error) + L")";
+        } else {
+            detail += state.keep_display_on ? L" · screen stays on" : L" · screen may turn off";
+        }
     } else {
         detail = L"Windows can sleep · watching for active agent work";
     }
@@ -280,17 +292,22 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         detail,
         hero_detail,
         body_font_,
-        state.power_request_available ? kMuted : kWarning,
+        protection_error || (state.active && !state.display_request_accepted) ? kWarning : kMuted,
         DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
 
-    RECT state_chip{hero.right - Scale(78), hero.top + Scale(13), hero.right - Scale(14), hero.top + Scale(37)};
-    FillRoundedRectangle(memory, state_chip, Scale(12), state.active ? kActiveDark : kSurfaceRaised, state.active ? RGB(31, 91, 72) : kBorder);
+    RECT state_chip{hero.right - Scale(104), hero.top + Scale(13), hero.right - Scale(14), hero.top + Scale(37)};
+    FillRoundedRectangle(
+        memory,
+        state_chip,
+        Scale(12),
+        protection_error ? RGB(71, 43, 12) : state.active ? kActiveDark : kSurfaceRaised,
+        hero_border);
     DrawTextBlock(
         memory,
-        state.active ? L"ACTIVE" : L"IDLE",
+        protection_error ? L"ERROR" : state.active ? L"PROTECTED" : L"READY",
         state_chip,
         tiny_semibold_font_,
-        state.active ? kActive : kFaint,
+        protection_error ? kWarning : state.active ? kActive : kFaint,
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     RECT active_title{margin, Scale(160), content_right, Scale(183)};
     DrawTextBlock(memory, L"Running now", active_title, body_semibold_font_, kText);
@@ -394,14 +411,14 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
             UiAction::ToggleDisplay,
         },
         {
-            L"Launch AgentLatch at sign-in",
-            L"Starts monitoring automatically when you sign in to Windows.",
+            L"Start AgentLatch automatically",
+            L"Runs at sign-in; unexpected exits restart automatically.",
             state.start_with_windows,
             UiAction::ToggleStartup,
         },
         {
             L"Show wake status notifications",
-            L"Alerts you when AgentLatch starts or stops keeping the PC awake.",
+            L"Optional status changes; protection failures always alert.",
             state.settings.notifications,
             UiAction::ToggleNotifications,
         },

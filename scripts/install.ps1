@@ -5,7 +5,9 @@ param(
     [switch]$SkipHooks,
     [switch]$NoStop,
     [switch]$NoLaunch,
-    [string]$ConfigRoot = ([Environment]::GetFolderPath('UserProfile'))
+    [string]$ConfigRoot = ([Environment]::GetFolderPath('UserProfile')),
+    [Parameter(DontShow)]
+    [string]$StartupRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,9 +53,8 @@ if ($PSCmdlet.ShouldProcess($InstallDirectory, 'Install AgentLatch')) {
         }
     }
     if ($StartWithWindows) {
-        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-        New-Item -Path $runKey -Force | Out-Null
-        New-ItemProperty -Path $runKey -Name 'AgentLatch' -Value ('"{0}" --background' -f $installedExecutable) -PropertyType String -Force | Out-Null
+        New-Item -Path $StartupRegistryPath -Force | Out-Null
+        New-ItemProperty -Path $StartupRegistryPath -Name 'AgentLatch' -Value ('"{0}" --background' -f $installedExecutable) -PropertyType String -Force | Out-Null
     }
     if (-not $SkipHooks) {
         $integrationInstaller = Join-Path $InstallDirectory 'install-integrations.ps1'

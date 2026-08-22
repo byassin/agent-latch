@@ -18,4 +18,6 @@ Codex session blocks, OpenAI composer metadata, and hook input are processed in 
 
 Settings and integration-health markers are stored in `HKCU\Software\AgentLatch`. If enabled, Windows startup stores the executable path in the current user's Run key. The integration installer writes AgentLatch commands into provider-owned JSON files and creates timestamped backup copies beside changed files. Those backups preserve the provider configuration as it existed before AgentLatch changed it and remain under the user's profile until the user removes them.
 
+AgentLatch keeps a bounded local diagnostic history at `%LOCALAPPDATA%\AgentLatch\diagnostics.log`, with one rotated `diagnostics.previous.log`. Each file is limited to 512 KiB. Records contain UTC timestamps, AgentLatch version and process ID, active latch counts and provider names, power-request desired/accepted state and Windows error codes, and watchdog restart outcomes. They do not contain latch IDs, workspace paths, prompts, responses, terminal output, source content, or conversation data. The normal uninstaller removes both logs.
+
 No AgentLatch data is sent off the computer.

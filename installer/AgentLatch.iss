@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.4"
+  #define AppVersion "0.2.5"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.2.4.0"
+  #define VersionInfoVersion "0.2.5.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -67,7 +67,7 @@ UsePreviousAppDir=yes
 UsePreviousTasks=yes
 
 [Tasks]
-Name: "startup"; Description: "Start AgentLatch when I sign in"; GroupDescription: "Startup:"; Flags: checkedonce
+Name: "startup"; Description: "Start AgentLatch automatically when I sign in"; GroupDescription: "Startup:"; Flags: checkedonce
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
@@ -105,6 +105,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 
 [UninstallDelete]
 Type: files; Name: "{app}\.integrations-installed"
+Type: files; Name: "{app}\diagnostics.log"
+Type: files; Name: "{app}\diagnostics.previous.log"
 Type: dirifempty; Name: "{app}"
 
 [Code]

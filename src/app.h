@@ -1,6 +1,7 @@
 #pragma once
 
 #include "agent_detector.h"
+#include "diagnostics.h"
 #include "latch_registry.h"
 #include "power_request.h"
 #include "settings.h"
@@ -40,6 +41,8 @@ private:
     bool ProcessIpcMessage(const std::wstring& message);
     void UpdateTrayIcon();
     void ShowTransitionNotification(bool active);
+    void ShowProtectionFailureNotification(DWORD error);
+    void OpenDiagnostics();
     void LaunchHookSetup();
     void ShowAbout();
 
@@ -55,11 +58,17 @@ private:
     bool shutting_down_{false};
     bool transition_state_initialized_{false};
     bool last_active_state_{false};
+    bool protection_failed_{false};
+    bool protection_failure_alerted_{false};
+    std::wstring last_latch_diagnostic_;
+    std::wstring last_power_diagnostic_;
     HICON idle_icon_{nullptr};
     HICON active_icon_{nullptr};
     HICON manual_icon_{nullptr};
+    HICON warning_icon_{nullptr};
 
     Settings settings_;
+    DiagnosticsLog diagnostics_;
     LatchRegistry latches_;
     PowerRequest power_request_;
     AgentDetector detector_;

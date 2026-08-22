@@ -126,3 +126,9 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 - A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.
 - Disabling a provider in the dashboard removes that provider's automatic and hook latches immediately.
+
+## Diagnosing a missed latch or sleep
+
+First check the dashboard state. **READY** means no active source was detected. **PROTECTED** means work was detected and Windows accepted the system keep-awake request. **ERROR** means work was detected but the Windows request failed and is being retried.
+
+Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **PROTECTED**.
