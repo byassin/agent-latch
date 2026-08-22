@@ -18,6 +18,7 @@ All notable changes to AgentLatch will be documented here.
 
 ### Fixed
 
+- Claude Code no longer releases its session latch when a foreground turn stops with background agents, shell jobs, monitors, workflows, teammates, cloud sessions, or MCP work still in flight. Claude task-registry entries now receive independent latches through `TaskCreated` and `TaskCompleted`.
 - System and display power-request errors are tracked independently, retried, and surfaced with their Windows error codes.
 - Portable install tests and non-production uninstallers no longer stop the running production instance or delete a startup entry that points to another AgentLatch installation.
 

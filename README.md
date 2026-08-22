@@ -15,7 +15,7 @@ AgentLatch is a lightweight, open-source Windows tray app that prevents idle sle
 ## Why AgentLatch
 
 - **Agent-aware:** watches Codex, Claude Code, Cursor, OpenCode, and Google Antigravity/Gemini CLI.
-- **Concurrency-safe:** lifecycle-backed conversations, sessions, and subagents keep independent latches. A regular ChatGPT response counts alongside active Codex tasks; only an overlapping Codex composer response is deduplicated against its lifecycle task.
+- **Concurrency-safe:** lifecycle-backed conversations, sessions, subagents, and Claude background tasks keep independent latches. A regular ChatGPT response counts alongside active Codex tasks; only an overlapping Codex composer response is deduplicated against its lifecycle task.
 - **Your choice of precision:** set every provider independently to **Tasks**, **Open**, or **Off**.
 - **Task-first by default:** the unified OpenAI app's response state, Codex lifecycle records, and provider hooks track actual work; conservative CLI activity detection is the fallback.
 - **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
@@ -31,12 +31,12 @@ AgentLatch uses a Windows power request. While work is active, **PROTECTED** mea
 | Provider | Tasks mode | Open mode | Lifecycle hooks |
 |---|---|---|---|
 | OpenAI / Codex | ChatGPT response state + native Codex lifecycle + hooks/CLI activity | Unified desktop app or CLI | Codex tasks; CLI sessions and subagents |
-| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions and subagents |
+| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions, subagents, background work, and task registry |
 | Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
 | OpenCode | CLI activity | CLI process | External lease API |
 | Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
 
-In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open; closing the provider or turning it **Off** releases that detector latch immediately. Hook stop events release their matching lifecycle latch immediately, and hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
+In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Claude `Stop` events retain the session latch when Claude reports in-flight background work, and task/subagent completion releases only the matching independent latch. Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open; closing the provider or turning it **Off** releases that detector latch immediately. Hook leases expire automatically if an agent crashes or never sends a final event. Click a provider in the dashboard to cycle **Tasks → Open → Off**.
 
 ## Install
 

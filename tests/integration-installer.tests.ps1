@@ -130,7 +130,7 @@ try {
     $first = @{}
     foreach ($entry in @(
         @{ Name = 'codex'; Path = $codexPath; Provider = 'codex'; Events = 7 },
-        @{ Name = 'claude'; Path = $claudePath; Provider = 'claude'; Events = 8 },
+        @{ Name = 'claude'; Path = $claudePath; Provider = 'claude'; Events = 11 },
         @{ Name = 'cursor'; Path = $cursorPath; Provider = 'cursor'; Events = 8 }
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
@@ -150,6 +150,13 @@ try {
     if ($antigravityCount -ne 3) { throw "Antigravity expected 3 hook commands, found $antigravityCount." }
     if ((Count-Command $antigravityConfig 'existing-antigravity-tool.exe') -ne 1) {
         throw 'The existing Antigravity hook was not preserved.'
+    }
+    $claudeConfig = [System.IO.File]::ReadAllText($claudePath) | ConvertFrom-Json
+    foreach ($eventName in @('PostToolBatch', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'Stop')) {
+        $event = $claudeConfig.hooks.PSObject.Properties[$eventName]
+        if ($null -eq $event -or (Count-Command $event.Value ('"' + [System.IO.Path]::GetFullPath($AgentLatchPath) + '" --hook claude')) -ne 1) {
+            throw "Claude lifecycle event $eventName was not installed exactly once."
+        }
     }
 
     New-ItemProperty -Path $statusKey -Name 'HookSeenCodex' -Value 1 -PropertyType DWord -Force | Out-Null
