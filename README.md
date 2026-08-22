@@ -9,7 +9,7 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep only while useful work is still running. It understands concurrent AI coding agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source and any safety grace finish.
 
 <p align="center">
-  <img src="assets/dashboard.png" width="500" alt="AgentLatch dashboard showing an active Codex task">
+  <img src="assets/dashboard.png" width="500" alt="AgentLatch v0.2.5 dashboard confirming Windows sleep protection for an active Claude Code task">
 </p>
 
 ## Why AgentLatch
