@@ -9,7 +9,7 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep only while useful work is still running. It understands concurrent AI coding agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source and any safety grace finish.
 
 <p align="center">
-  <img src="assets/dashboard.png" width="500" alt="AgentLatch v0.2.5 dashboard confirming Windows sleep protection for an active Claude Code task">
+  <img src="assets/dashboard.png" width="500" alt="AgentLatch dashboard confirming Windows sleep protection for an active Claude Code task">
 </p>
 
 ## Why AgentLatch
@@ -47,7 +47,7 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 
 Setup installs AgentLatch for the current user without an administrator prompt, creates normal Start menu and Windows uninstall entries, replaces an older running copy cleanly, and launches the new version. If AgentLatch later exits abnormally, a companion watchdog restarts it automatically; choosing **Exit** remains final. The exact stable version is always visible beside the AgentLatch name in the dashboard and in the window title.
 
-Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. The Windows uninstaller removes only AgentLatch's own integration entries.
+Codex, Claude Code, Cursor, and Google Antigravity lifecycle integrations are installed automatically. Existing provider configuration is preserved, duplicate entries are avoided, and a timestamped backup is made before a changed JSON file is written. Claude Code hooks use its shell-free executable-and-arguments format, avoiding command-line quoting problems and returning AgentLatch's process status directly. The Windows uninstaller removes only AgentLatch's own integration entries.
 
 OpenAI desktop detection is native and automatic for the packaged unified Windows app. AgentLatch reads Codex's local start/complete lifecycle markers and observes only the primary composer button's Windows accessibility metadata so ChatGPT responses also keep the PC awake. English Send/Stop names are recognized directly; other locales are learned conservatively from a stable disabled idle command. AgentLatch never reads prompt, response, or conversation content. If the expected control cannot be classified after an app update, detection fails closed instead of keeping the PC awake. No chat command, hook trust dialog, or separate setup step is required. Codex CLI hooks remain an additional signal when available.
 
@@ -115,7 +115,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.5
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.6
 ```
 
 ## Design principles

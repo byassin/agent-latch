@@ -55,33 +55,87 @@ function Count-CommandPrefix {
     return $count
 }
 
-function Count-AgentLatchProviderCommand {
+function Test-ArgumentsEqual {
+    param($Actual, [string[]]$Expected)
+    $actualValues = @($Actual)
+    if ($actualValues.Count -ne $Expected.Count) { return $false }
+    for ($index = 0; $index -lt $Expected.Count; $index++) {
+        if (-not [string]::Equals([string]$actualValues[$index], $Expected[$index], [StringComparison]::Ordinal)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Count-ExecCommand {
+    param($Value, [string]$ExpectedCommand, [string[]]$ExpectedArguments)
+    if ($null -eq $Value) { return 0 }
+    if ($Value -is [string] -or $Value -is [ValueType]) { return 0 }
+    $count = 0
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [pscustomobject])) {
+        foreach ($item in $Value) { $count += Count-ExecCommand $item $ExpectedCommand $ExpectedArguments }
+        return $count
+    }
+    $commandProperty = $Value.PSObject.Properties['command']
+    $argumentsProperty = $Value.PSObject.Properties['args']
+    $actualArguments = if ($null -eq $argumentsProperty) { @() } else { @($argumentsProperty.Value) }
+    if ($null -ne $commandProperty -and
+        [string]::Equals([string]$commandProperty.Value, $ExpectedCommand, [StringComparison]::Ordinal) -and
+        (Test-ArgumentsEqual $actualArguments $ExpectedArguments)) {
+        $count++
+    }
+    foreach ($property in $Value.PSObject.Properties) {
+        if ($property.Name -notin @('command', 'args')) {
+            $count += Count-ExecCommand $property.Value $ExpectedCommand $ExpectedArguments
+        }
+    }
+    return $count
+}
+
+function Count-AgentLatchProviderEntry {
     param($Value, [string]$ProviderKey)
     if ($null -eq $Value) { return 0 }
     if ($Value -is [string] -or $Value -is [ValueType]) { return 0 }
     $count = 0
     if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [pscustomobject])) {
-        foreach ($item in $Value) { $count += Count-AgentLatchProviderCommand $item $ProviderKey }
+        foreach ($item in $Value) { $count += Count-AgentLatchProviderEntry $item $ProviderKey }
         return $count
     }
     $pattern = '(?i)AgentLatch\.exe"?\s+--hook\s+' + [regex]::Escape($ProviderKey) + '(?:\s|$)'
+    $commandProperty = $Value.PSObject.Properties['command']
+    $argumentsProperty = $Value.PSObject.Properties['args']
+    $entryCommand = if ($null -eq $commandProperty) { '' } else { [string]$commandProperty.Value }
+    $entryArguments = if ($null -eq $argumentsProperty) { @() } else { @($argumentsProperty.Value) }
+    $isProviderEntry = $entryCommand -match $pattern
+    if (-not $isProviderEntry -and $entryArguments.Count -ge 2) {
+        $executableName = [System.IO.Path]::GetFileName($entryCommand)
+        $isProviderEntry = [string]::Equals($executableName, 'AgentLatch.exe', [StringComparison]::OrdinalIgnoreCase) -and
+            [string]$entryArguments[0] -eq '--hook' -and
+            [string]::Equals([string]$entryArguments[1], $ProviderKey, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if ($isProviderEntry) {
+        $count++
+    }
     foreach ($property in $Value.PSObject.Properties) {
-        if ($property.Name -eq 'command' -and ([string]$property.Value) -match $pattern) {
-            $count++
-        } else {
-            $count += Count-AgentLatchProviderCommand $property.Value $ProviderKey
+        if ($property.Name -notin @('command', 'args')) {
+            $count += Count-AgentLatchProviderEntry $property.Value $ProviderKey
         }
     }
     return $count
 }
 
 try {
+    $runtimeDirectory = Join-Path $testRoot 'runtime with spaces'
+    [System.IO.Directory]::CreateDirectory($runtimeDirectory) | Out-Null
+    $hookExecutablePath = Join-Path $runtimeDirectory 'AgentLatch.exe'
+    Copy-Item -LiteralPath $AgentLatchPath -Destination $hookExecutablePath
     $codexPath = Join-Path $testRoot '.codex\hooks.json'
     $claudePath = Join-Path $testRoot '.claude\settings.json'
     $cursorPath = Join-Path $testRoot '.cursor\hooks.json'
     $antigravityPath = Join-Path $testRoot '.gemini\config\hooks.json'
     $staleCodexCommand = '"C:\OldPreview\AgentLatch.exe" --hook codex'
     $staleClaudeCommand = '"C:\OldPreview\AgentLatch.exe" --hook claude'
+    $staleBareClaudeCommand = 'C:\OldPreview\AgentLatch.exe --hook claude'
     $staleCursorCommand = '"C:\OldPreview\AgentLatch.exe" --hook cursor'
     Write-Utf8Json $codexPath ([ordered]@{
         sentinel = 'codex'
@@ -96,7 +150,12 @@ try {
         sentinel = 'claude'
         permissions = [ordered]@{ allow = @('Read') }
         hooks = [ordered]@{
-            Stop = @([ordered]@{ hooks = @([ordered]@{ type = 'command'; command = $staleClaudeCommand; timeout = 5 }) })
+            Stop = @([ordered]@{ hooks = @(
+                [ordered]@{ type = 'command'; command = $staleClaudeCommand; timeout = 5 },
+                [ordered]@{ type = 'command'; command = $staleBareClaudeCommand; timeout = 5 },
+                [ordered]@{ type = 'command'; command = 'C:\OldPreview\AgentLatch.exe'; args = @('--hook', 'claude'); timeout = 5 },
+                [ordered]@{ type = 'command'; command = 'existing-claude-tool.exe'; timeout = 5 }
+            ) })
         }
     })
     Write-Utf8Json $cursorPath ([ordered]@{
@@ -117,7 +176,7 @@ try {
         }
     })
 
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
+    & $installer -AgentLatchPath $hookExecutablePath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
     $integrationStatus = Get-ItemProperty -Path $statusKey
     if ($integrationStatus.IntegrationExpectedCodex -ne 1 -or
         $integrationStatus.IntegrationExpectedClaude -ne 1 -or
@@ -135,17 +194,22 @@ try {
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
         if ([string]$config.sentinel -ne $entry.Name) { throw "$($entry.Name) sentinel was not preserved." }
-        $command = '"' + [System.IO.Path]::GetFullPath($AgentLatchPath) + '" --hook ' + $entry.Provider
-        $count = Count-Command $config $command
+        $resolvedExecutable = [System.IO.Path]::GetFullPath($hookExecutablePath)
+        $command = '"' + $resolvedExecutable + '" --hook ' + $entry.Provider
+        $count = if ($entry.Provider -eq 'claude') {
+            Count-ExecCommand $config $resolvedExecutable @('--hook', 'claude')
+        } else {
+            Count-Command $config $command
+        }
         if ($count -ne $entry.Events) { throw "$($entry.Name) expected $($entry.Events) hook commands, found $count." }
-        if ((Count-AgentLatchProviderCommand $config $entry.Provider) -ne $entry.Events) {
+        if ((Count-AgentLatchProviderEntry $config $entry.Provider) -ne $entry.Events) {
             throw "$($entry.Name) left a stale or duplicate AgentLatch command behind."
         }
         $first[$entry.Name] = $count
     }
     $antigravityConfig = [System.IO.File]::ReadAllText($antigravityPath) | ConvertFrom-Json
     if ([string]$antigravityConfig.sentinel -ne 'antigravity') { throw 'Antigravity sentinel was not preserved.' }
-    $antigravityCommand = '"' + [System.IO.Path]::GetFullPath($AgentLatchPath) + '" --hook antigravity'
+    $antigravityCommand = '"' + [System.IO.Path]::GetFullPath($hookExecutablePath) + '" --hook antigravity'
     $antigravityCount = Count-CommandPrefix $antigravityConfig $antigravityCommand
     if ($antigravityCount -ne 3) { throw "Antigravity expected 3 hook commands, found $antigravityCount." }
     if ((Count-Command $antigravityConfig 'existing-antigravity-tool.exe') -ne 1) {
@@ -154,14 +218,35 @@ try {
     $claudeConfig = [System.IO.File]::ReadAllText($claudePath) | ConvertFrom-Json
     foreach ($eventName in @('PostToolBatch', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'Stop')) {
         $event = $claudeConfig.hooks.PSObject.Properties[$eventName]
-        if ($null -eq $event -or (Count-Command $event.Value ('"' + [System.IO.Path]::GetFullPath($AgentLatchPath) + '" --hook claude')) -ne 1) {
+        if ($null -eq $event -or
+            (Count-ExecCommand $event.Value ([System.IO.Path]::GetFullPath($hookExecutablePath)) @('--hook', 'claude')) -ne 1) {
             throw "Claude lifecycle event $eventName was not installed exactly once."
         }
+    }
+    if ((Count-Command $claudeConfig 'existing-claude-tool.exe') -ne 1) {
+        throw 'The existing Claude hook was not preserved.'
+    }
+
+    $execStart = [System.Diagnostics.ProcessStartInfo]::new()
+    $execStart.FileName = [System.IO.Path]::GetFullPath($hookExecutablePath)
+    $execStart.UseShellExecute = $false
+    $execStart.RedirectStandardInput = $true
+    $execStart.RedirectStandardOutput = $true
+    $execStart.RedirectStandardError = $true
+    $execStart.Arguments = '--hook claude'
+    $execProcess = [System.Diagnostics.Process]::Start($execStart)
+    $execProcess.StandardInput.Write('{}')
+    $execProcess.StandardInput.Close()
+    $execOutput = $execProcess.StandardOutput.ReadToEnd().Trim()
+    $execError = $execProcess.StandardError.ReadToEnd().Trim()
+    $execProcess.WaitForExit()
+    if ($execProcess.ExitCode -ne 0 -or $execOutput -ne '{}' -or -not [string]::IsNullOrEmpty($execError)) {
+        throw "Claude exec-form hook failed: exit=$($execProcess.ExitCode) stdout='$execOutput' stderr='$execError'"
     }
 
     New-ItemProperty -Path $statusKey -Name 'HookSeenCodex' -Value 1 -PropertyType DWord -Force | Out-Null
     New-ItemProperty -Path $statusKey -Name 'HookSeenClaude' -Value 1 -PropertyType DWord -Force | Out-Null
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
+    & $installer -AgentLatchPath $hookExecutablePath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey
     $integrationStatus = Get-ItemProperty -Path $statusKey
     if ($integrationStatus.HookSeenCodex -ne 1 -or $integrationStatus.HookSeenClaude -ne 1) {
         throw 'Idempotent reinstall reset healthy hook-seen status without changing commands.'
@@ -172,15 +257,21 @@ try {
         @{ Name = 'cursor'; Path = $cursorPath; Provider = 'cursor' }
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
-        $command = '"' + [System.IO.Path]::GetFullPath($AgentLatchPath) + '" --hook ' + $entry.Provider
-        if ((Count-Command $config $command) -ne $first[$entry.Name]) { throw "$($entry.Name) installer was not idempotent." }
+        $resolvedExecutable = [System.IO.Path]::GetFullPath($hookExecutablePath)
+        $command = '"' + $resolvedExecutable + '" --hook ' + $entry.Provider
+        $count = if ($entry.Provider -eq 'claude') {
+            Count-ExecCommand $config $resolvedExecutable @('--hook', 'claude')
+        } else {
+            Count-Command $config $command
+        }
+        if ($count -ne $first[$entry.Name]) { throw "$($entry.Name) installer was not idempotent." }
     }
     $antigravityConfig = [System.IO.File]::ReadAllText($antigravityPath) | ConvertFrom-Json
     if ((Count-CommandPrefix $antigravityConfig $antigravityCommand) -ne $antigravityCount) {
         throw 'Antigravity installer was not idempotent.'
     }
 
-    & $installer -AgentLatchPath $AgentLatchPath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey -Uninstall
+    & $installer -AgentLatchPath $hookExecutablePath -ConfigRoot $testRoot -IntegrationStatusKeyOverride $statusKey -Uninstall
     $integrationStatus = Get-ItemProperty -Path $statusKey
     if ($integrationStatus.IntegrationExpectedCodex -ne 0 -or
         $integrationStatus.IntegrationExpectedClaude -ne 0 -or
@@ -194,7 +285,7 @@ try {
         @{ Name = 'cursor'; Path = $cursorPath; Provider = 'cursor' }
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
-        if ((Count-AgentLatchProviderCommand $config $entry.Provider) -ne 0) { throw "$($entry.Name) hooks were not removed." }
+        if ((Count-AgentLatchProviderEntry $config $entry.Provider) -ne 0) { throw "$($entry.Name) hooks were not removed." }
         if ([string]$config.sentinel -ne $entry.Name) { throw "$($entry.Name) sentinel was lost during uninstall." }
     }
     $antigravityConfig = [System.IO.File]::ReadAllText($antigravityPath) | ConvertFrom-Json

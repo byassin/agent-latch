@@ -16,7 +16,7 @@ The default x64 output is `build-x64\Release\AgentLatch.exe`. Before submitting 
 
 ```powershell
 .\scripts\build.ps1
-.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.2.5
+.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.2.6
 .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 ```
