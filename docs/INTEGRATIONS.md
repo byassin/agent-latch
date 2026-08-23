@@ -74,9 +74,18 @@ Configured events include prompt submission, individual and batched tool use, su
 
 Claude includes an in-flight `background_tasks` summary when the foreground turn stops but shell work, subagents, monitors, workflows, teammates, cloud sessions, or MCP tasks are still running. AgentLatch uses only the number of entries in that array: a non-empty summary keeps the session latch and reports the concurrent count, while a later empty `Stop` releases it. Task subjects, descriptions, commands, model output, and transcript content are ignored. `TaskCreated` and `TaskCompleted` provide an additional independent lifecycle for Claude's task registry and agent-team work.
 
-```text
-"C:\path\to\AgentLatch.exe" --hook claude
+AgentLatch installs Claude commands using Claude Code's shell-free executable-and-arguments form:
+
+```json
+{
+  "type": "command",
+  "command": "C:\\path\\to\\AgentLatch.exe",
+  "args": ["--hook", "claude"],
+  "timeout": 5
+}
 ```
+
+Claude invokes the executable directly, so Windows paths containing spaces do not depend on PowerShell or Git Bash quoting, and Claude receives AgentLatch's process exit code directly. Repairing integrations automatically replaces both the older quoted shell command and manually repaired bare-path variants.
 
 For a normal setup installation, these managed hooks are authoritative in **Tasks** mode. AgentLatch does not treat CPU or I/O from Claude's surviving transient daemon, background PTY host, or resumed helper processes as proof that a task is still running. **Open** mode still latches on Claude process presence. Portable copies without managed hooks retain conservative Claude CLI activity detection as a fallback; run the integration installer to opt into precise lifecycle behavior.
 

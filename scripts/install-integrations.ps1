@@ -120,17 +120,55 @@ function Save-JsonObject {
     Move-Item -LiteralPath $tempPath -Destination $Path -Force
 }
 
-function Test-AgentLatchProviderCommand {
+function Test-AgentLatchProviderEntry {
     param(
-        [string]$Command,
+        $Entry,
         [string]$ProviderKey
     )
 
+    $Command = if ($null -ne $Entry.PSObject.Properties['command']) { [string]$Entry.command } else { '' }
     if ([string]::IsNullOrWhiteSpace($Command)) {
         return $false
     }
     $pattern = '(?i)AgentLatch\.exe"?\s+--hook\s+' + [regex]::Escape($ProviderKey) + '(?:\s|$)'
-    return $Command -match $pattern
+    if ($Command -match $pattern) {
+        return $true
+    }
+
+    $arguments = @(Get-ArrayProperty $Entry 'args')
+    if ($arguments.Count -lt 2) {
+        return $false
+    }
+    $executableName = [System.IO.Path]::GetFileName($Command)
+    return [string]::Equals($executableName, 'AgentLatch.exe', [StringComparison]::OrdinalIgnoreCase) -and
+        [string]::Equals([string]$arguments[0], '--hook', [StringComparison]::Ordinal) -and
+        [string]::Equals([string]$arguments[1], $ProviderKey, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-HookEntryMatches {
+    param(
+        $Entry,
+        [string]$Command,
+        [string[]]$CommandArguments
+    )
+
+    $entryCommand = if ($null -ne $Entry.PSObject.Properties['command']) { [string]$Entry.command } else { '' }
+    if (-not [string]::Equals($entryCommand, $Command, [StringComparison]::Ordinal)) {
+        return $false
+    }
+    $entryArguments = @(Get-ArrayProperty $Entry 'args')
+    if ($entryArguments.Count -ne $CommandArguments.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $CommandArguments.Count; $index++) {
+        if (-not [string]::Equals(
+                [string]$entryArguments[$index],
+                [string]$CommandArguments[$index],
+                [StringComparison]::Ordinal)) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Update-NestedHook {
@@ -138,6 +176,7 @@ function Update-NestedHook {
         $Hooks,
         [string]$EventName,
         [string]$Command,
+        [string[]]$CommandArguments,
         [string]$ProviderKey,
         [bool]$Remove
     )
@@ -151,9 +190,9 @@ function Update-NestedHook {
         $commands = @(Get-ArrayProperty $group 'hooks')
         $keptCommands = @()
         foreach ($entry in $commands) {
-            $entryCommand = if ($null -ne $entry.PSObject.Properties['command']) { [string]$entry.command } else { '' }
-            if (Test-AgentLatchProviderCommand $entryCommand $ProviderKey) {
-                if (-not $Remove -and -not $found -and $entryCommand -eq $Command) {
+            if (Test-AgentLatchProviderEntry $entry $ProviderKey) {
+                if (-not $Remove -and -not $found -and
+                    (Test-HookEntryMatches $entry $Command $CommandArguments)) {
                     $found = $true
                     $keptCommands += $entry
                 } else {
@@ -173,14 +212,16 @@ function Update-NestedHook {
     }
 
     if (-not $Remove -and -not $found) {
+        $handler = [ordered]@{
+            type = 'command'
+            command = $Command
+        }
+        if ($CommandArguments.Count -gt 0) {
+            $handler['args'] = @($CommandArguments)
+        }
+        $handler['timeout'] = 5
         $updatedGroups += [pscustomobject]@{
-            hooks = @(
-                [pscustomobject]@{
-                    type = 'command'
-                    command = $Command
-                    timeout = 5
-                }
-            )
+            hooks = @([pscustomobject]$handler)
         }
         $changed = $true
     }
@@ -196,6 +237,7 @@ function Update-DirectHook {
         $Hooks,
         [string]$EventName,
         [string]$Command,
+        [string[]]$CommandArguments,
         [string]$ProviderKey,
         [bool]$Remove
     )
@@ -205,9 +247,9 @@ function Update-DirectHook {
     $changed = $false
     $updated = @()
     foreach ($entry in $entries) {
-        $entryCommand = if ($null -ne $entry.PSObject.Properties['command']) { [string]$entry.command } else { '' }
-        if (Test-AgentLatchProviderCommand $entryCommand $ProviderKey) {
-            if (-not $Remove -and -not $found -and $entryCommand -eq $Command) {
+        if (Test-AgentLatchProviderEntry $entry $ProviderKey) {
+            if (-not $Remove -and -not $found -and
+                (Test-HookEntryMatches $entry $Command $CommandArguments)) {
                 $found = $true
                 $updated += $entry
             } else {
@@ -218,7 +260,11 @@ function Update-DirectHook {
         $updated += $entry
     }
     if (-not $Remove -and -not $found) {
-        $updated += [pscustomobject]@{ command = $Command }
+        $handler = [ordered]@{ command = $Command }
+        if ($CommandArguments.Count -gt 0) {
+            $handler['args'] = @($CommandArguments)
+        }
+        $updated += [pscustomobject]$handler
         $changed = $true
     }
     if ($changed) {
@@ -232,6 +278,7 @@ function Update-ProviderConfig {
         [string]$Name,
         [string]$Path,
         [string]$Command,
+        [string[]]$CommandArguments = @(),
         [string]$ProviderKey,
         [string[]]$Events,
         [bool]$Direct
@@ -245,9 +292,9 @@ function Update-ProviderConfig {
     $changed = $false
     foreach ($eventName in $Events) {
         if ($Direct) {
-            $changed = (Update-DirectHook $hooks $eventName $Command $ProviderKey ([bool]$Uninstall)) -or $changed
+            $changed = (Update-DirectHook $hooks $eventName $Command $CommandArguments $ProviderKey ([bool]$Uninstall)) -or $changed
         } else {
-            $changed = (Update-NestedHook $hooks $eventName $Command $ProviderKey ([bool]$Uninstall)) -or $changed
+            $changed = (Update-NestedHook $hooks $eventName $Command $CommandArguments $ProviderKey ([bool]$Uninstall)) -or $changed
         }
     }
 
@@ -330,7 +377,8 @@ if ($providers -contains 'Claude') {
     Update-ProviderConfig `
         -Name 'Claude Code' `
         -Path (Join-Path $ConfigRoot '.claude\settings.json') `
-        -Command "$quotedExecutable --hook claude" `
+        -Command $AgentLatchPath `
+        -CommandArguments @('--hook', 'claude') `
         -ProviderKey 'claude' `
         -Events @(
             'UserPromptSubmit',
@@ -383,7 +431,14 @@ if ($hasStatusKeyOverride -or
                 New-ItemProperty -Path $statusKey -Name $expectedValueName -Value 0 -PropertyType DWord -Force | Out-Null
                 Remove-ItemProperty -Path $statusKey -Name $commandValueName -ErrorAction SilentlyContinue
             } else {
-                $integrationCommand = "$quotedExecutable --hook $($integration.ProviderKey)"
+                $integrationCommand = if ($integration.Name -eq 'Claude') {
+                    [ordered]@{
+                        command = $AgentLatchPath
+                        args = @('--hook', 'claude')
+                    } | ConvertTo-Json -Compress
+                } else {
+                    "$quotedExecutable --hook $($integration.ProviderKey)"
+                }
                 $previousCommand = ''
                 $existingStatus = Get-ItemProperty -Path $statusKey -ErrorAction SilentlyContinue
                 if ($null -ne $existingStatus) {

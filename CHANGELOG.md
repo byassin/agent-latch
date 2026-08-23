@@ -4,6 +4,16 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-22
+
+### Fixed
+
+- Claude Code hooks now use its shell-free executable-and-arguments form, eliminating PowerShell and Git Bash quoting failures while passing AgentLatch's process exit code directly to Claude.
+- Integration repair recognizes and replaces legacy quoted commands, manually repaired bare-path commands, and stale exec-form entries across all 11 Claude lifecycle events.
+- Installer tests now verify Claude hook execution from a path containing spaces returns exit code zero, writes `{}` to standard output, and writes nothing to standard error.
+
+## [0.2.5] - 2026-08-22
+
 ### Added
 
 - A zero-CPU companion watchdog now restarts AgentLatch after an abnormal exit, with a bounded three-attempt rapid-failure guard. Normal tray Exit and installer shutdown remain final.

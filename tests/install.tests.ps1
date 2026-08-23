@@ -29,6 +29,43 @@ function Count-CommandPrefix {
     return $count
 }
 
+function Test-ArgumentsEqual {
+    param($Actual, [string[]]$Expected)
+    $actualValues = @($Actual)
+    if ($actualValues.Count -ne $Expected.Count) { return $false }
+    for ($index = 0; $index -lt $Expected.Count; $index++) {
+        if (-not [string]::Equals([string]$actualValues[$index], $Expected[$index], [StringComparison]::Ordinal)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Count-ExecCommand {
+    param($Value, [string]$ExpectedCommand, [string[]]$ExpectedArguments)
+    if ($null -eq $Value) { return 0 }
+    if ($Value -is [string] -or $Value -is [ValueType]) { return 0 }
+    $count = 0
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [pscustomobject])) {
+        foreach ($item in $Value) { $count += Count-ExecCommand $item $ExpectedCommand $ExpectedArguments }
+        return $count
+    }
+    $commandProperty = $Value.PSObject.Properties['command']
+    $argumentsProperty = $Value.PSObject.Properties['args']
+    $actualArguments = if ($null -eq $argumentsProperty) { @() } else { @($argumentsProperty.Value) }
+    if ($null -ne $commandProperty -and
+        [string]::Equals([string]$commandProperty.Value, $ExpectedCommand, [StringComparison]::Ordinal) -and
+        (Test-ArgumentsEqual $actualArguments $ExpectedArguments)) {
+        $count++
+    }
+    foreach ($property in $Value.PSObject.Properties) {
+        if ($property.Name -notin @('command', 'args')) {
+            $count += Count-ExecCommand $property.Value $ExpectedCommand $ExpectedArguments
+        }
+    }
+    return $count
+}
+
 try {
     $releaseRoot = Join-Path $testRoot 'release'
     $releaseScripts = Join-Path $releaseRoot 'scripts'
@@ -57,8 +94,13 @@ try {
             throw "$($entry.Name) hooks were not installed by default."
         }
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
-        $commandPrefix = '"' + $installedExecutable + '" --hook ' + $entry.Provider
-        if ((Count-CommandPrefix $config $commandPrefix) -lt 1) {
+        $hookCount = if ($entry.Provider -eq 'claude') {
+            Count-ExecCommand $config $installedExecutable @('--hook', 'claude')
+        } else {
+            $commandPrefix = '"' + $installedExecutable + '" --hook ' + $entry.Provider
+            Count-CommandPrefix $config $commandPrefix
+        }
+        if ($hookCount -lt 1) {
             throw "$($entry.Name) does not reference the installed AgentLatch executable."
         }
     }
@@ -85,8 +127,13 @@ try {
         @{ Name = 'Antigravity'; Path = (Join-Path $configRoot '.gemini\config\hooks.json'); Provider = 'antigravity' }
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
-        $commandPrefix = '"' + $installedExecutable + '" --hook ' + $entry.Provider
-        if ((Count-CommandPrefix $config $commandPrefix) -ne 0) {
+        $hookCount = if ($entry.Provider -eq 'claude') {
+            Count-ExecCommand $config $installedExecutable @('--hook', 'claude')
+        } else {
+            $commandPrefix = '"' + $installedExecutable + '" --hook ' + $entry.Provider
+            Count-CommandPrefix $config $commandPrefix
+        }
+        if ($hookCount -ne 0) {
             throw "$($entry.Name) hooks were not removed by the normal uninstaller."
         }
     }
