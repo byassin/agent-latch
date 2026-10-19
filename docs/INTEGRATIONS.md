@@ -147,9 +147,9 @@ On the **Agents** tab, explicit **Tasks only**, **While open**, and **Off** drop
 
 ## Diagnosing a missed latch or sleep
 
-First check the dashboard state. **READY** means no active source was detected. **PROTECTED** means work was detected and Windows accepted the system keep-awake request. **ERROR** means work was detected but the Windows request failed and is being retried.
+First check the dashboard summary. **Ready when your agents are** means no active source was detected. **Sleep protection is on** means an automatic source or manual override is active and Windows accepted the system keep-awake request. **Sleep protection needs attention** means protection was requested but Windows rejected it and AgentLatch is retrying. The corresponding tray states remain READY, PROTECTED, and ERROR.
 
-Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **PROTECTED**.
+Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **Sleep protection is on**.
 
 Latch-state records include `grace=Codex` (or another provider name) when protection is in release or restart grace. `detector_released` records distinguish disabled, absent-process, and finished-activity releases; explicit policy changes also emit `provider_mode_changed`. `restart_grace_started` / `restart_grace_ended` explain disappearance, return, or deadline expiry; manual-session events identify starts, explicit stops, and timer expiry. Grace is a temporary keep-awake reason; **While open** means presence protection. Neither means a task is currently running.
 

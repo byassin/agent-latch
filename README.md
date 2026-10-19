@@ -9,7 +9,7 @@
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep while AI agents work—or whenever you explicitly need your PC to stay awake. It understands concurrent agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source, manual session, and safety grace finish.
 
 <p align="center">
-  <img src="assets/dashboard.png" width="600" alt="AgentLatch Overview tab with current sleep protection, manual controls, and active reasons">
+  <img src="assets/dashboard.png" width="620" alt="AgentLatch Overview with activity-first layout and compact manual override">
 </p>
 <p align="center"><sub>Off-screen capture rendered from the running app's state—not a desktop screenshot or fabricated example.</sub></p>
 
@@ -17,17 +17,17 @@ AgentLatch is a lightweight, open-source Windows tray app that prevents idle sle
 
 AgentLatch has three tabs, with protection status always visible:
 
-- **Overview:** start/change/stop manual protection and inspect every protection reason. Long lists scroll inside the list, not the whole window.
+- **Overview:** see five complete agent-activity rows at once. Previous/next controls and Page Up/Page Down reveal additional sources without a bright system scrollbar. Manual protection has a separate, compact override strip.
 - **Agents:** select **Tasks only**, **While open**, or **Off** explicitly for each provider. These correspond to Tasks, Open, and Off mode in the technical documentation.
 - **Settings:** choose screen behavior, launch at sign-in, and notifications; open diagnostics or repair integrations when needed.
 
-The 600 × 480 logical-pixel window uses native Windows tabs, buttons, dropdowns, checkboxes, and a reason list. Use **Tab / Shift+Tab** to move between controls, **Ctrl+Tab / Ctrl+Shift+Tab** to switch pages, arrow keys on a focused tab or dropdown, and **Space / Enter** to activate the focused control. Closing the window leaves monitoring in the tray; **More… → Exit** exits the app.
+The 620 × 560 logical-pixel window uses native Windows controls with consistent dark styling: compact navigation, a single protection summary, two-line activity rows, and labeled On/Off switches. Switches retain native checkbox state and keyboard/accessibility behavior. Use **Tab / Shift+Tab** between controls, **Ctrl+Tab / Ctrl+Shift+Tab** between pages, arrow keys within tabs/dropdowns/lists, and **Space / Enter** on focused controls. Closing the window leaves monitoring in the tray; **More… → Exit** exits the app.
 
 <details>
 <summary>Agents and Settings screenshots</summary>
 
 ![Agents tab with explicit per-provider dropdowns](assets/agents.png)
-![Settings tab with labeled Windows checkboxes](assets/settings.png)
+![Settings tab with clearly labeled On/Off switches](assets/settings.png)
 
 </details>
 
@@ -45,7 +45,7 @@ The 600 × 480 logical-pixel window uses native Windows tabs, buttons, dropdowns
 - **Verifiable:** the dashboard distinguishes a detected latch from a Windows-accepted sleep-protection request, and a local diagnostic history explains every transition.
 - **Native and private:** one Win32 executable, no account, no service, no telemetry, and no administrator rights.
 
-AgentLatch uses a Windows power request. While work is active, **PROTECTED** means Windows accepted `PowerRequestSystemRequired`; **ERROR** means the request failed and AgentLatch is retrying. It does not jiggle the mouse, synthesize keystrokes, change the system power plan, or prevent a user-initiated shutdown or sleep.
+AgentLatch uses a Windows power request. **Sleep protection is on** means Windows accepted `PowerRequestSystemRequired`; **Sleep protection needs attention** means the request failed and AgentLatch is retrying. The tray/diagnostic states remain PROTECTED and ERROR. It does not jiggle the mouse, synthesize keystrokes, change the system power plan, or prevent a user-initiated shutdown or sleep.
 
 ## Provider support
 
@@ -63,7 +63,7 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 
 On **Overview**, under **Manual keep-awake**, select **Keep awake…**, then **Until stopped**, a quick duration (1, 2, 4, 8, 12, or 24 hours), or **Custom hours…** (1–168 whole hours). The same controls are available from the tray menu. The countdown is the actual manual session time remaining—not an estimate of agent completion.
 
-Manual protection stays active even if every agent closes or updates. **Change duration…** replaces the existing manual session; **Stop** cancels only manual protection, leaving agent monitoring and any other protection reasons running. Keeping the screen on remains an independent checkbox on **Settings**; it is not needed to keep the PC awake.
+Manual protection stays active even if every agent closes or updates. **Change…** replaces the existing manual session; **Stop** cancels only manual protection, leaving agent monitoring and any other protection reasons running. Keeping the screen on remains an independent switch on **Settings**; it is not needed to keep the PC awake.
 
 The manual session is saved locally. Restarting AgentLatch restores an indefinite session or the remaining time until a timed session's original end; it never starts a fresh full-length timer. **Until stopped** also resumes at Windows sign-in if AgentLatch starts automatically. Choosing **Exit** releases protection while AgentLatch is not running, but does not erase the saved session. Use **Stop** to cancel it permanently.
 
@@ -128,11 +128,11 @@ The final hook release also gets five seconds of settling grace, covering an upd
 
 The dashboard has three explicit system states:
 
-- **READY** — no work is latched and normal Windows sleep policy applies.
-- **PROTECTED** — one or more latches are active and Windows accepted the system keep-awake request.
-- **ERROR** — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
+- **Ready when your agents are** (READY in the tray) — no work is latched and normal Windows sleep policy applies.
+- **Sleep protection is on** (PROTECTED) — one or more latches are active and Windows accepted the system keep-awake request.
+- **Sleep protection needs attention** (ERROR) — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
 
-Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. Overview lists all reasons in a native, keyboard-accessible list, with separate source and status columns. There is no whole-window scrollbar or two-row overflow summary.
+Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes automatic sources, not task totals: one row can contain several concurrent tasks. Manual protection is shown only in its override strip, not duplicated in the activity list. All automatic sources remain available through the native, keyboard-accessible five-row pages; monitoring refreshes preserve the current page.
 
 Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, detector release reasons, restart-grace transitions, and manual-session starts/stops/expiry. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
 
@@ -160,7 +160,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.3.1
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.0
 ```
 
 ## Design principles

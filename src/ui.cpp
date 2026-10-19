@@ -21,7 +21,7 @@ constexpr COLORREF kSurfaceRaised = RGB(27, 32, 39);
 constexpr COLORREF kBorder = RGB(43, 49, 59);
 constexpr COLORREF kText = RGB(244, 247, 250);
 constexpr COLORREF kMuted = RGB(157, 166, 178);
-constexpr COLORREF kFaint = RGB(103, 113, 128);
+constexpr COLORREF kFaint = RGB(128, 139, 155);
 constexpr COLORREF kActive = RGB(52, 211, 153);
 constexpr COLORREF kActiveDark = RGB(18, 52, 44);
 constexpr COLORREF kIdle = RGB(112, 122, 136);
@@ -162,7 +162,11 @@ constexpr int kStatusTitle = 40, kStatusDetail = 41, kStatusBadge = 42;
 constexpr int kManualTitle = 70, kManualStatus = 71, kManualHint = 72;
 constexpr int kManualStart = 73, kManualStop = 74, kManualNote = 75;
 constexpr int kReasonsTitle = 90, kReasonsCount = 91, kReasons = 92;
+constexpr int kPreviousSources = 93, kNextSources = 94;
+constexpr int kEmptyTitle = 95, kEmptyHint = 96;
 constexpr int kAgentsTitle = 100, kAgentsHint = 101;
+constexpr int kSettingsTitle = 430;
+constexpr std::size_t kSourcesPerPage = 5;
 constexpr int kModeFirst = 300, kProviderName = 310, kProviderDetail = 320;
 constexpr int kScreen = 400, kStartup = 401, kNotifications = 402;
 constexpr int kSettingHint = 410, kDiagnostics = 420, kRepair = 421;
@@ -228,41 +232,43 @@ void DashboardRenderer::Initialize(UINT dpi) {
     ResetResources();
     dpi_ = dpi == 0 ? 96 : dpi;
     brand_icon_ = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),
-        MAKEINTRESOURCEW(IDI_AGENTLATCH), IMAGE_ICON, Scale(30), Scale(30), LR_DEFAULTCOLOR));
+        MAKEINTRESOURCEW(IDI_AGENTLATCH), IMAGE_ICON, Scale(26), Scale(26), LR_DEFAULTCOLOR));
 }
 int DashboardRenderer::Scale(int value) const {
     return MulDiv(value, static_cast<int>(dpi_), 96);
 }
-SIZE DashboardRenderer::PreferredClientSize() const { return SIZE{Scale(600), Scale(480)}; }
+SIZE DashboardRenderer::PreferredClientSize() const { return SIZE{Scale(620), Scale(560)}; }
 
 void DashboardRenderer::Paint(HDC dc, const RECT& client, const DashboardState& state) {
     FillRectangle(dc, client, kBackground);
     const int right = client.right - Scale(20);
     if (brand_icon_ != nullptr) {
-        DrawIconEx(dc, Scale(20), Scale(17), brand_icon_, Scale(30), Scale(30), 0, nullptr, DI_NORMAL);
+        DrawIconEx(dc, Scale(20), Scale(17), brand_icon_, Scale(26), Scale(26), 0, nullptr, DI_NORMAL);
     }
-    RECT header_line{0, Scale(62), client.right, Scale(63)};
+    RECT header_line{Scale(20), Scale(104), right, Scale(105)};
     FillRectangle(dc, header_line, kBorder);
-    RECT status{Scale(20), Scale(114), right, Scale(192)};
+    RECT status{Scale(20), Scale(114), right, Scale(172)};
     FillRoundedRectangle(dc, status, Scale(12), StatusFill(state),
         !state.system_request_accepted ? RGB(120, 78, 20) : state.active ? RGB(31, 91, 72) : kBorder);
     const COLORREF accent = !state.system_request_accepted ? kWarning : state.active ? kActive : kIdle;
-    DrawStatusDot(dc, Scale(40), Scale(140), Scale(4), accent);
-    RECT chip{right - Scale(120), Scale(128), right - Scale(16), Scale(151)};
-    FillRoundedRectangle(dc, chip, Scale(7), BadgeFill(state), kBorder);
+    DrawStatusDot(dc, Scale(38), Scale(136), Scale(4), accent);
     if (state.page == DashboardPage::Overview) {
-        FillRoundedRectangle(dc, RECT{Scale(20), Scale(207), right, Scale(321)}, Scale(10), kSurface, kBorder);
-        FillRoundedRectangle(dc, RECT{Scale(20), Scale(359), right, Scale(444)}, Scale(10), kSurface, kBorder);
+        FillRoundedRectangle(dc, RECT{Scale(20), Scale(222), right, Scale(426)}, Scale(10), kSurface, kBorder);
+        FillRoundedRectangle(dc, RECT{Scale(20), Scale(444), right, Scale(516)}, Scale(10), kSurface, kBorder);
     } else if (state.page == DashboardPage::Agents) {
-        FillRoundedRectangle(dc, RECT{Scale(20), Scale(234), right, Scale(434)}, Scale(10), kSurface, kBorder);
+        FillRoundedRectangle(dc, RECT{Scale(20), Scale(234), right, Scale(504)}, Scale(10), kSurface, kBorder);
         for (int index = 1; index < 5; ++index) {
-            const int y = Scale(234 + index * 40);
+            const int y = Scale(234 + index * 54);
             FillRectangle(dc, RECT{Scale(36), y, right - Scale(16), y + 1}, kBorder);
         }
     } else {
-        FillRoundedRectangle(dc, RECT{Scale(20), Scale(207), right, Scale(397)}, Scale(10), kSurface, kBorder);
+        FillRoundedRectangle(dc, RECT{Scale(20), Scale(234), right, Scale(438)}, Scale(10), kSurface, kBorder);
+        for (int index = 1; index < 3; ++index) {
+            const int y = Scale(234 + index * 68);
+            FillRectangle(dc, RECT{Scale(36), y, right - Scale(16), y + 1}, kBorder);
+        }
     }
-    FillRectangle(dc, RECT{0, Scale(451), client.right, Scale(452)}, kBorder);
+    FillRectangle(dc, RECT{Scale(20), Scale(530), right, Scale(531)}, kBorder);
 }
 
 DashboardControls::~DashboardControls() {
@@ -287,6 +293,9 @@ HWND DashboardControls::Add(const wchar_t* class_name, const wchar_t* text, DWOR
         GetModuleHandleW(nullptr), nullptr);
     if (control == nullptr) { return nullptr; }
     controls_.push_back(Control{control, id, page, bounds, right_anchor});
+    if (std::wstring(class_name) == L"BUTTON" && (style & BS_TYPEMASK) == BS_OWNERDRAW) {
+        SetWindowSubclass(control, ButtonProcedure, 1, reinterpret_cast<DWORD_PTR>(this));
+    }
     SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(body_font_), FALSE);
     return control;
 }
@@ -311,11 +320,11 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     status_brush_ = CreateSolidBrush(kSurface);
     badge_brush_ = CreateSolidBrush(kSurfaceRaised);
     SetDpi(dpi);
-    Text(L"AgentLatch", kTitle, -1, RECT{62, 15, 218, 47});
-    Text((L"v" + std::wstring(kAgentLatchVersion)).c_str(), kVersion, -1, RECT{226, 27, 370, 44});
-    Add(L"BUTTON", L"More…", WS_TABSTOP | BS_OWNERDRAW, kMore, -1, RECT{500, 20, 580, 46}, true);
+    Text(L"AgentLatch", kTitle, -1, RECT{56, 15, 224, 44});
+    Text((L"v" + std::wstring(kAgentLatchVersion)).c_str(), kVersion, -1, RECT{225, 22, 360, 40});
+    Add(L"BUTTON", L"More…", WS_TABSTOP | BS_OWNERDRAW, kMore, -1, RECT{526, 18, 600, 44}, true);
     tabs_ = Add(WC_TABCONTROLW, L"AgentLatch pages", WS_TABSTOP | TCS_FIXEDWIDTH,
-        kTabs, -1, RECT{20, 72, 580, 104});
+        kTabs, -1, RECT{20, 64, 360, 100});
     if (tabs_ == nullptr) { return false; }
     for (const wchar_t* label : {L"Overview", L"Agents", L"Settings"}) {
         TCITEMW item{};
@@ -324,30 +333,29 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
         TabCtrl_InsertItem(tabs_, TabCtrl_GetItemCount(tabs_), &item);
     }
     SetWindowSubclass(tabs_, TabProcedure, 1, reinterpret_cast<DWORD_PTR>(this));
-    Text(L"", kStatusTitle, -1, RECT{60, 126, 454, 151});
-    Text(L"", kStatusDetail, -1, RECT{60, 158, 565, 180});
-    HWND badge = Text(L"", kStatusBadge, -1, RECT{464, 131, 560, 149}, true);
-    SetWindowLongPtrW(badge, GWL_STYLE, GetWindowLongPtrW(badge, GWL_STYLE) | SS_CENTER);
-    Text(L"Closing this window keeps monitoring in the tray.", kFooter, -1, RECT{20, 460, 575, 477});
+    Text(L"", kStatusTitle, -1, RECT{52, 122, 582, 146});
+    Text(L"", kStatusDetail, -1, RECT{52, 147, 582, 165});
+    Text(L"Monitoring continues in the system tray.", kFooter, -1, RECT{20, 537, 600, 555});
 
     const int overview = static_cast<int>(DashboardPage::Overview);
-    Text(L"Manual keep-awake", kManualTitle, overview, RECT{36, 219, 350, 243});
-    HWND manual_status = Text(L"", kManualStatus, overview, RECT{366, 221, 564, 243}, true);
-    SetWindowLongPtrW(manual_status, GWL_STYLE,
-        (GetWindowLongPtrW(manual_status, GWL_STYLE) & ~SS_TYPEMASK) | SS_RIGHT | SS_ENDELLIPSIS);
-    Text(L"Keep awake even if every agent closes or updates.", kManualHint, overview, RECT{36, 249, 562, 269});
-    Add(L"BUTTON", L"Keep awake…", WS_TABSTOP | BS_OWNERDRAW, kManualStart, overview, RECT{36, 278, 183, 307});
-    Add(L"BUTTON", L"Stop", WS_TABSTOP | BS_OWNERDRAW, kManualStop, overview, RECT{195, 278, 274, 307});
-    Text(L"Agent tracking stays on.", kManualNote, overview, RECT{290, 285, 562, 305});
-    Text(L"Protection reasons", kReasonsTitle, overview, RECT{20, 335, 350, 355});
-    HWND count = Text(L"", kReasonsCount, overview, RECT{450, 339, 580, 356}, true);
+    Text(L"Manual override", kManualTitle, overview, RECT{36, 454, 340, 477});
+    Text(L"", kManualStatus, overview, RECT{36, 480, 390, 502});
+    Add(L"BUTTON", L"Keep awake…", WS_TABSTOP | BS_OWNERDRAW, kManualStart, overview, RECT{404, 463, 504, 493}, true);
+    Add(L"BUTTON", L"Stop", WS_TABSTOP | BS_OWNERDRAW, kManualStop, overview, RECT{514, 463, 584, 493}, true);
+    Text(L"Agent activity", kReasonsTitle, overview, RECT{20, 190, 280, 214});
+    HWND count = Text(L"", kReasonsCount, overview, RECT{318, 193, 600, 214}, true);
     SetWindowLongPtrW(count, GWL_STYLE, GetWindowLongPtrW(count, GWL_STYLE) | SS_RIGHT);
+    Add(L"BUTTON", L"‹", WS_TABSTOP | BS_OWNERDRAW, kPreviousSources, overview, RECT{522, 188, 556, 216}, true);
+    Add(L"BUTTON", L"›", WS_TABSTOP | BS_OWNERDRAW, kNextSources, overview, RECT{566, 188, 600, 216}, true);
+    AccessibleName(Find(kPreviousSources), L"Previous activity page");
+    AccessibleName(Find(kNextSources), L"Next activity page");
     reasons_ = Add(WC_LISTVIEWW, L"Active protection reasons", WS_TABSTOP | LVS_REPORT |
-        LVS_NOCOLUMNHEADER | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS,
-        kReasons, overview, RECT{28, 366, 572, 438});
+        LVS_NOCOLUMNHEADER | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS | LVS_OWNERDRAWFIXED,
+        kReasons, overview, RECT{24, 224, 596, 424});
     if (reasons_ == nullptr) { return false; }
     SetWindowTheme(reasons_, L"", L"");
     AccessibleName(reasons_, L"Active protection reasons");
+    SetWindowSubclass(reasons_, ReasonsProcedure, 1, reinterpret_cast<DWORD_PTR>(this));
     ListView_SetBkColor(reasons_, kSurface);
     ListView_SetTextBkColor(reasons_, kSurface);
     ListView_SetTextColor(reasons_, kText);
@@ -362,18 +370,23 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     column.fmt = LVCFMT_RIGHT;
     column.mask |= LVCF_FMT;
     ListView_InsertColumn(reasons_, 1, &column);
+    HWND empty_title = Text(L"All quiet for now", kEmptyTitle, overview, RECT{36, 292, 584, 318});
+    HWND empty_hint = Text(L"", kEmptyHint, overview, RECT{36, 320, 584, 345});
+    for (HWND empty : {empty_title, empty_hint}) {
+        SetWindowLongPtrW(empty, GWL_STYLE, (GetWindowLongPtrW(empty, GWL_STYLE) & ~SS_TYPEMASK) | SS_CENTER);
+    }
 
     const int agents = static_cast<int>(DashboardPage::Agents);
-    Text(L"Agent tracking", kAgentsTitle, agents, RECT{20, 209, 215, 231});
-    Text(L"Choose when each app keeps your PC awake.", kAgentsHint, agents, RECT{238, 213, 580, 232});
+    Text(L"Agent tracking", kAgentsTitle, agents, RECT{20, 190, 300, 214});
+    Text(L"Choose when each app can keep your PC awake.", kAgentsHint, agents, RECT{20, 214, 600, 232});
     for (std::size_t index = 0; index < kProviders.size(); ++index) {
         const int offset = static_cast<int>(index);
-        const int top = 234 + offset * 40;
-        Text(kProviderLabels[index], kProviderName + offset, agents, RECT{36, top + 5, 372, top + 23});
-        Text(L"", kProviderDetail + offset, agents, RECT{36, top + 23, 372, top + 39});
+        const int top = 234 + offset * 54;
+        Text(kProviderLabels[index], kProviderName + offset, agents, RECT{36, top + 8, 372, top + 29});
+        Text(L"", kProviderDetail + offset, agents, RECT{36, top + 30, 372, top + 49});
         HWND combo = Add(WC_COMBOBOXW, L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST |
             CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, kModeFirst + offset, agents,
-            RECT{400, top + 8, 564, top + 140}, true);
+            RECT{410, top + 13, 584, top + 145}, true);
         if (combo == nullptr) { return false; }
         SetWindowTheme(combo, L"", L"");
         for (const wchar_t* mode : kModeLabels) { SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(mode)); }
@@ -381,6 +394,7 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
         SetWindowSubclass(combo, ComboProcedure, 1, reinterpret_cast<DWORD_PTR>(this));
     }
     const int settings = static_cast<int>(DashboardPage::Settings);
+    Text(L"Preferences", kSettingsTitle, settings, RECT{20, 190, 600, 218});
     const std::array<const wchar_t*, 3> labels = {
         L"Keep the screen on while protected", L"Start AgentLatch when I sign in", L"Show status notifications"};
     const std::array<const wchar_t*, 3> hints = {
@@ -388,17 +402,18 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
         L"Monitor agents and restore saved manual sessions at sign-in.",
         L"Optional wake alerts. Protection failures always notify you."};
     for (int index = 0; index < 3; ++index) {
-        const int top = 222 + index * 60;
+        const int top = 246 + index * 68;
         HWND checkbox = Add(L"BUTTON", labels[static_cast<std::size_t>(index)],
-            WS_TABSTOP | BS_AUTOCHECKBOX, kScreen + index, settings, RECT{36, top, 564, top + 24});
+            WS_TABSTOP | BS_AUTOCHECKBOX, kScreen + index, settings, RECT{36, top, 584, top + 26});
         SetWindowTheme(checkbox, L"", L"");
+        SetWindowSubclass(checkbox, ToggleProcedure, 1, reinterpret_cast<DWORD_PTR>(this));
         Text(hints[static_cast<std::size_t>(index)], kSettingHint + index, settings,
-            RECT{59, top + 27, 564, top + 46});
+            RECT{36, top + 29, 584, top + 48});
     }
     Add(L"BUTTON", L"Diagnostic history", WS_TABSTOP | BS_OWNERDRAW,
-        kDiagnostics, settings, RECT{20, 409, 207, 439});
+        kDiagnostics, settings, RECT{20, 458, 207, 490});
     Add(L"BUTTON", L"Repair integrations…", WS_TABSTOP | BS_OWNERDRAW,
-        kRepair, settings, RECT{220, 409, 421, 439});
+        kRepair, settings, RECT{220, 458, 421, 490});
     SetDpi(dpi);
     Layout();
     Update(state_);
@@ -414,15 +429,15 @@ void DashboardControls::SetDpi(UINT dpi) {
     body_font_ = CreateUiFont(dpi_, 10, FW_NORMAL);
     heading_font_ = CreateUiFont(dpi_, 12, FW_SEMIBOLD);
     small_font_ = CreateUiFont(dpi_, 9, FW_NORMAL);
-    title_font_ = CreateUiFont(dpi_, 18, FW_SEMIBOLD);
+    title_font_ = CreateUiFont(dpi_, 15, FW_SEMIBOLD);
     for (const auto& control : controls_) {
         HFONT font = body_font_;
         if (control.id == kTitle) { font = title_font_; }
         else if (control.id == kStatusTitle || control.id == kManualTitle ||
-                 control.id == kReasonsTitle || control.id == kAgentsTitle) { font = heading_font_; }
+                 control.id == kReasonsTitle || control.id == kAgentsTitle || control.id == kSettingsTitle || control.id == kEmptyTitle) { font = heading_font_; }
         else if (control.id == kVersion || control.id == kStatusDetail || control.id == kStatusBadge ||
                  control.id == kFooter || control.id == kManualHint || control.id == kManualNote ||
-                 control.id == kReasonsCount || control.id == kAgentsHint ||
+                 control.id == kReasonsCount || control.id == kAgentsHint || control.id == kEmptyHint ||
                  (control.id >= kProviderDetail && control.id < kProviderDetail + 5) ||
                  (control.id >= kSettingHint && control.id <= kSettingHint + 2)) { font = small_font_; }
         SendMessageW(control.window, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -435,7 +450,7 @@ void DashboardControls::SetDpi(UINT dpi) {
         if (reasons_ != nullptr) { ListView_SetImageList(reasons_, nullptr, LVSIL_SMALL); }
         ImageList_Destroy(row_images_);
     }
-    row_images_ = ImageList_Create(1, Scale(25), ILC_COLOR32, 1, 1);
+    row_images_ = ImageList_Create(1, Scale(38), ILC_COLOR32, 1, 1);
     if (reasons_ != nullptr) { ListView_SetImageList(reasons_, row_images_, LVSIL_SMALL); }
     Layout();
 }
@@ -443,17 +458,17 @@ void DashboardControls::Layout() {
     if (parent_ == nullptr) { return; }
     RECT client{};
     GetClientRect(parent_, &client);
-    const int extra = client.right - Scale(600);
+    const int extra = client.right - Scale(620);
     for (const auto& control : controls_) {
         RECT rect{Scale(control.bounds.left), Scale(control.bounds.top),
                   Scale(control.bounds.right), Scale(control.bounds.bottom)};
         if (control.right_anchor) { rect.left += extra; rect.right += extra; }
-        else if (control.id == kTabs || control.id == kReasons || control.id == kFooter ||
+        else if (control.id == kReasons || control.id == kFooter ||
                  control.id == kStatusDetail) { rect.right += extra; }
         MoveWindow(control.window, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
     }
     if (tabs_ != nullptr) {
-        TabCtrl_SetItemSize(tabs_, (client.right - Scale(56)) / 3, Scale(30));
+        TabCtrl_SetItemSize(tabs_, Scale(110), Scale(34));
     }
     LayoutReasonColumns();
 }
@@ -471,6 +486,9 @@ void DashboardControls::ApplyVisibility() {
     for (const auto& control : controls_) {
         bool visible = control.page < 0 || control.page == static_cast<int>(page_);
         if ((control.id == kManualStop || control.id == kManualNote) && !state_.manual_active) { visible = false; }
+        if ((control.id == kPreviousSources || control.id == kNextSources) && activity_.size() <= kSourcesPerPage) { visible = false; }
+        if (control.id == kReasons && activity_.empty()) { visible = false; }
+        if ((control.id == kEmptyTitle || control.id == kEmptyHint) && !activity_.empty()) { visible = false; }
         ShowWindow(control.window, visible ? SW_SHOWNA : SW_HIDE);
     }
 }
@@ -499,23 +517,20 @@ void DashboardControls::Update(const DashboardState& state) {
     const bool grace_only = !state_.latches.empty() && std::all_of(state_.latches.begin(),
         state_.latches.end(), [](const Latch& latch) { return latch.in_grace_period; });
     TextValue(kStatusTitle, error ? L"Sleep protection needs attention" :
-        state_.active ? (grace_only ? L"Finishing protection" : L"Your PC is staying awake") : L"Ready for agent work");
-    TextValue(kStatusBadge, error ? L"ERROR" : state_.active ? L"PROTECTED" : L"READY");
+        state_.active ? (grace_only ? L"Finishing protection" : L"Sleep protection is on") : L"Ready when your agents are");
     std::wstring detail;
     if (error) {
         detail = L"Windows rejected the request (error " + std::to_wstring(state_.system_request_error) + L"). Retrying.";
     } else if (state_.active) {
-        detail = std::to_wstring(state_.latches.size()) +
-            (state_.latches.size() == 1 ? L" protection reason" : L" protection reasons");
-        detail += state_.keep_display_on ? L" · screen stays on" : L" · screen may turn off";
+        detail = state_.keep_display_on ? L"PC and screen stay awake while protected." : L"Your PC stays awake. The screen may turn off.";
         if (!state_.display_request_accepted) { detail += L" · screen request failed"; }
     } else { detail = L"Normal sleep settings apply. Enabled agents are being monitored."; }
     TextValue(kStatusDetail, detail);
-    TextValue(kManualStatus, !state_.manual_active ? L"Off" :
-        state_.manual_deadline == 0 ? L"Until stopped" : FormatCountdown(state_.manual_deadline, state_.now));
-    TextValue(kManualStart, state_.manual_active ? L"Change duration…" : L"Keep awake…");
-    TextValue(kReasonsCount, std::to_wstring(state_.latches.size()) +
-        (state_.latches.size() == 1 ? L" reason" : L" reasons"));
+    TextValue(kManualStatus, !state_.manual_active ? L"Off · keep awake independently of agents" :
+        (state_.manual_deadline == 0 ? L"Until stopped" : FormatCountdown(state_.manual_deadline, state_.now)) +
+            std::wstring(L" · independent of agents"));
+    TextValue(kManualStart, state_.manual_active ? L"Change…" : L"Keep awake…");
+    TextValue(kEmptyHint, state_.manual_active ? L"Manual override is keeping your PC awake." : L"Agent activity will appear here when detected.");
     for (std::size_t index = 0; index < kProviders.size(); ++index) {
         HWND combo = Find(kModeFirst + static_cast<int>(index));
         const int selected = ModeIndex(state_.settings.ProviderMode(kProviders[index]));
@@ -528,25 +543,54 @@ void DashboardControls::Update(const DashboardState& state) {
     SendMessageW(Find(kScreen), BM_SETCHECK, state_.keep_display_on ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(Find(kStartup), BM_SETCHECK, state_.start_with_windows ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(Find(kNotifications), BM_SETCHECK, state_.settings.notifications ? BST_CHECKED : BST_UNCHECKED, 0);
-    std::vector<std::pair<std::wstring, std::wstring>> rows;
-    for (const auto& latch : state_.latches) { rows.emplace_back(latch.label, LatchSecondaryText(latch, state_.now)); }
-    if (rows.empty()) { rows.emplace_back(L"No active protection reasons", L"Monitoring"); }
-    if (rows != reason_text_) {
-        if (rows.size() != reason_text_.size()) { ListView_DeleteAllItems(reasons_); }
-        for (std::size_t index = 0; index < rows.size(); ++index) {
-            const int row = static_cast<int>(index);
-            if (ListView_GetItemCount(reasons_) <= row) {
-                LVITEMW item{};
-                item.mask = LVIF_TEXT;
-                item.iItem = row;
-                item.pszText = rows[index].first.data();
-                ListView_InsertItem(reasons_, &item);
-            } else { ListView_SetItemText(reasons_, row, 0, rows[index].first.data()); }
-            ListView_SetItemText(reasons_, row, 1, rows[index].second.data());
-        }
-        reason_text_ = std::move(rows);
+    activity_.clear();
+    for (const auto& latch : state_.latches) {
+        if (latch.provider != Provider::Manual) { activity_.push_back(latch); }
     }
+    UpdateReasonRows();
     LayoutReasonColumns();
+    ApplyVisibility();
+}
+void DashboardControls::ChangeReasonPage(int direction) {
+    const std::size_t pages = (activity_.size() + kSourcesPerPage - 1) / kSourcesPerPage;
+    if (direction < 0 && reason_page_ > 0) { --reason_page_; }
+    if (direction > 0 && reason_page_ + 1 < pages) { ++reason_page_; }
+    UpdateReasonRows();
+    HWND focus = GetFocus();
+    if ((focus == Find(kPreviousSources) || focus == Find(kNextSources)) && !IsWindowEnabled(focus)) { SetFocus(reasons_); }
+}
+void DashboardControls::UpdateReasonRows() {
+    const std::size_t pages = std::max<std::size_t>(1, (activity_.size() + kSourcesPerPage - 1) / kSourcesPerPage);
+    reason_page_ = std::min(reason_page_, pages - 1);
+    const std::size_t begin = reason_page_ * kSourcesPerPage;
+    const std::size_t end = std::min(begin + kSourcesPerPage, activity_.size());
+    std::vector<std::pair<std::wstring, std::wstring>> rows;
+    for (std::size_t index = begin; index < end; ++index) {
+        rows.emplace_back(activity_[index].label, LatchSecondaryText(activity_[index], state_.now));
+    }
+    if (rows.empty()) { rows.emplace_back(L"No agent activity", state_.manual_active ? L"Manual override is keeping your PC awake." : L"New agent work will appear here automatically."); }
+    if (ListView_GetItemCount(reasons_) != static_cast<int>(rows.size())) { ListView_DeleteAllItems(reasons_); }
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        const int row = static_cast<int>(index);
+        if (ListView_GetItemCount(reasons_) <= row) {
+            LVITEMW item{};
+            item.mask = LVIF_TEXT; item.iItem = row; item.pszText = rows[index].first.data();
+            ListView_InsertItem(reasons_, &item);
+        } else { ListView_SetItemText(reasons_, row, 0, rows[index].first.data()); }
+        ListView_SetItemText(reasons_, row, 1, rows[index].second.data());
+    }
+    const bool paged = pages > 1;
+    TextValue(kReasonsCount, std::to_wstring(activity_.size()) + (activity_.size() == 1 ? L" source" : L" sources") +
+        (paged ? L" · " + std::to_wstring(begin + 1) + L"–" + std::to_wstring(end) : L""));
+    RECT client{}; GetClientRect(parent_, &client);
+    MoveWindow(Find(kManualStart), client.right - Scale(216), Scale(463),
+        Scale(state_.manual_active ? 100 : 180), Scale(30), TRUE);
+    MoveWindow(Find(kReasonsCount), Scale(300), Scale(193),
+        client.right - Scale(paged ? 410 : 320), Scale(21), TRUE);
+    EnableWindow(Find(kPreviousSources), reason_page_ > 0);
+    EnableWindow(Find(kNextSources), reason_page_ + 1 < pages);
+    // Do not reset list selection, keyboard focus or the current page on monitoring ticks.
+    InvalidateRect(reasons_, nullptr, FALSE);
     ApplyVisibility();
 }
 bool DashboardControls::HandleNotify(const NMHDR* notification) {
@@ -567,6 +611,8 @@ UiAction DashboardControls::ActionForCommand(WPARAM command) const {
         case kNotifications: return UiAction::ToggleNotifications;
         case kDiagnostics: return UiAction::OpenDiagnostics;
         case kRepair: return UiAction::SetupHooks;
+        case kPreviousSources: return UiAction::PreviousSources;
+        case kNextSources: return UiAction::NextSources;
         default: return UiAction::None;
     }
 }
@@ -582,6 +628,45 @@ bool DashboardControls::ReadProviderChange(WPARAM command, Provider* provider, D
 }
 bool DashboardControls::DrawItem(const DRAWITEMSTRUCT* item) const {
     if (item == nullptr) { return false; }
+    if (item->CtlType == ODT_LISTVIEW && item->CtlID == kReasons) {
+        const bool selected = (item->itemState & ODS_SELECTED) != 0;
+        FillRectangle(item->hDC, item->rcItem, selected ? kSurfaceRaised : kSurface);
+        RECT label = item->rcItem;
+        if (activity_.empty()) {
+            label.left += Scale(14); label.top += Scale(3); label.bottom = label.top + Scale(20);
+            DrawTextBlock(item->hDC, L"No agent activity", label, body_font_, kText);
+            label.top += Scale(20); label.bottom += Scale(17);
+            DrawTextBlock(item->hDC, state_.manual_active ? L"Manual override is keeping your PC awake." :
+                L"New agent work will appear here automatically.", label, small_font_, kMuted);
+            return true;
+        }
+        const std::size_t index = reason_page_ * kSourcesPerPage + item->itemID;
+        if (index >= activity_.size()) { return true; }
+        const Latch& source = activity_[index];
+        if (item->itemID > 0) {
+            FillRectangle(item->hDC, RECT{item->rcItem.left + Scale(30), item->rcItem.top,
+                item->rcItem.right - Scale(12), item->rcItem.top + 1}, RGB(31, 38, 47));
+        }
+        const COLORREF accent = source.in_grace_period ? kWarning : ProviderColor(source.provider);
+        DrawStatusDot(item->hDC, item->rcItem.left + Scale(15), item->rcItem.top + Scale(18), Scale(3), accent);
+        label.left += Scale(30); label.right -= Scale(155);
+        label.top += Scale(3); label.bottom = label.top + Scale(20);
+        DrawTextBlock(item->hDC, source.label, label, body_font_, kText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        const wchar_t* kind = source.kind == LatchKind::RestartGrace ? L"Update / restart grace" :
+            source.in_grace_period ? L"Finishing · release grace" :
+            source.kind == LatchKind::Hook ? L"Agent task" :
+            source.label.ends_with(L" open") ? L"App presence" : L"Activity detected";
+        label.top += Scale(20); label.bottom += Scale(17);
+        DrawTextBlock(item->hDC, kind, label, small_font_, kMuted);
+        RECT status = item->rcItem;
+        status.left = status.right - Scale(150); status.right -= Scale(12);
+        DrawTextBlock(item->hDC, LatchSecondaryText(source, state_.now), status, small_font_, accent,
+            DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        if ((item->itemState & ODS_FOCUS) != 0) {
+            RECT focus = item->rcItem; InflateRect(&focus, -Scale(2), -Scale(2)); DrawFocusRect(item->hDC, &focus);
+        }
+        return true;
+    }
     if (item->CtlType == ODT_COMBOBOX && item->CtlID >= kModeFirst && item->CtlID < kModeFirst + 5) {
         const bool selected = (item->itemState & ODS_SELECTED) != 0;
         FillRectangle(item->hDC, item->rcItem, selected ? kSurfaceRaised : kSurface);
@@ -593,15 +678,17 @@ bool DashboardControls::DrawItem(const DRAWITEMSTRUCT* item) const {
         return true;
     }
     if (item->CtlType != ODT_BUTTON) { return false; }
-    const bool primary = item->CtlID == kManualStart;
+    const bool primary = item->CtlID == kManualStart && !state_.manual_active;
     const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+    const bool disabled = (item->itemState & ODS_DISABLED) != 0 || !IsWindowEnabled(item->hwndItem);
+    const bool hovered = !disabled && GetPropW(item->hwndItem, L"AgentLatch.Hover") != nullptr;
     FillRectangle(item->hDC, item->rcItem, IsSurface(static_cast<int>(item->CtlID)) ? kSurface : kBackground);
     FillRoundedRectangle(item->hDC, item->rcItem, Scale(7),
-        primary ? (pressed ? RGB(24, 64, 53) : RGB(21, 54, 44)) : pressed ? kBorder : kSurfaceRaised,
-        primary ? RGB(43, 127, 98) : kBorder);
+        primary ? (pressed || hovered ? RGB(24, 64, 53) : RGB(21, 54, 44)) : pressed ? kBorder : hovered ? RGB(34, 43, 54) : kSurfaceRaised,
+        hovered ? RGB(75, 90, 108) : primary ? RGB(43, 127, 98) : kBorder);
     wchar_t label[128]{};
     GetWindowTextW(item->hwndItem, label, static_cast<int>(std::size(label)));
-    DrawTextBlock(item->hDC, label, item->rcItem, body_font_, primary ? kActive : kText,
+    DrawTextBlock(item->hDC, label, item->rcItem, body_font_, disabled ? kFaint : primary ? kActive : kText,
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     if ((item->itemState & ODS_FOCUS) != 0) {
         RECT focus = item->rcItem; InflateRect(&focus, -Scale(4), -Scale(4));
@@ -610,6 +697,9 @@ bool DashboardControls::DrawItem(const DRAWITEMSTRUCT* item) const {
     return true;
 }
 bool DashboardControls::MeasureItem(MEASUREITEMSTRUCT* item) const {
+    if (item != nullptr && item->CtlType == ODT_LISTVIEW && item->CtlID == kReasons) {
+        item->itemHeight = static_cast<UINT>(Scale(40)); return true;
+    }
     if (item != nullptr && item->CtlType == ODT_COMBOBOX) {
         item->itemHeight = static_cast<UINT>(Scale(24));
         return true;
@@ -623,15 +713,22 @@ HBRUSH DashboardControls::ControlColor(HDC dc, HWND control) const {
         color = !state_.system_request_accepted ? kWarning : state_.active ? kActive : kMuted;
     } else if (id == kManualStatus) { color = state_.manual_active ? kBlue : kMuted; }
     else if (id == kVersion || id == kFooter || id == kReasonsCount || id == kAgentsHint) { color = kFaint; }
-    else if (id == kStatusDetail || id == kManualHint || id == kManualNote ||
+    else if (id == kStatusDetail || id == kManualHint || id == kManualNote || id == kEmptyHint ||
              (id >= kProviderDetail && id < kProviderDetail + 5) ||
              (id >= kSettingHint && id <= kSettingHint + 2)) { color = kMuted; }
+    if (id >= kProviderDetail && id < kProviderDetail + 5) {
+        const Provider provider = kProviders[static_cast<std::size_t>(id - kProviderDetail)];
+        const std::wstring status = ProviderTrackingStatus(provider, state_.settings.ProviderMode(provider), state_.latches);
+        if (status == L"RUNNING" || status == L"OPEN") { color = kActive; }
+        else if (status == L"GRACE") { color = kWarning; }
+    }
     SetTextColor(dc, color);
     const COLORREF background = id == kStatusBadge ? BadgeFill(state_) :
-        IsStatus(id) ? StatusFill(state_) : IsSurface(id) ? kSurface : kBackground;
+        IsStatus(id) ? StatusFill(state_) : (IsSurface(id) || id == kEmptyTitle || id == kEmptyHint) ? kSurface : kBackground;
     SetBkColor(dc, background);
     SetBkMode(dc, TRANSPARENT);
-    return id == kStatusBadge ? badge_brush_ : IsStatus(id) ? status_brush_ : IsSurface(id) ? surface_ : background_;
+    return id == kStatusBadge ? badge_brush_ : IsStatus(id) ? status_brush_ :
+        (IsSurface(id) || id == kEmptyTitle || id == kEmptyHint) ? surface_ : background_;
 }
 HWND DashboardControls::ActionWindow(UiAction action) const {
     return Find(action == UiAction::ManualMenu ? kManualStart : action == UiAction::MoreMenu ? kMore : 0);
@@ -669,15 +766,12 @@ LRESULT CALLBACK DashboardControls::ComboProcedure(HWND window, UINT message, WP
 void DashboardControls::PaintTabs(HDC dc) const {
     RECT bounds{}; GetClientRect(tabs_, &bounds);
     FillRectangle(dc, bounds, kBackground);
-    FillRoundedRectangle(dc, bounds, Scale(8), kSurface, kBorder);
     for (int index = 0; index < 3; ++index) {
         RECT item{}; TabCtrl_GetItemRect(tabs_, index, &item);
         const bool selected = index == static_cast<int>(page_);
         if (selected) {
             RECT fill = item; InflateRect(&fill, -Scale(2), -Scale(2));
-            FillRoundedRectangle(dc, fill, Scale(6), kSurfaceRaised, kBorder);
-            FillRectangle(dc, RECT{fill.left + Scale(14), fill.bottom - Scale(2),
-                                   fill.right - Scale(14), fill.bottom}, kActive);
+            FillRoundedRectangle(dc, fill, Scale(6), kSurfaceRaised, kSurfaceRaised);
         }
         const wchar_t* label = index == 0 ? L"Overview" : index == 1 ? L"Agents" : L"Settings";
         DrawTextBlock(dc, label, item, body_font_, selected ? kText : kMuted,
@@ -686,6 +780,60 @@ void DashboardControls::PaintTabs(HDC dc) const {
             InflateRect(&item, -Scale(5), -Scale(5)); DrawFocusRect(dc, &item);
         }
     }
+}
+void DashboardControls::PaintToggle(HWND window, HDC dc) const {
+    RECT bounds{}; GetClientRect(window, &bounds);
+    FillRectangle(dc, bounds, kSurface);
+    const bool checked = SendMessageW(window, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    wchar_t label[128]{}; GetWindowTextW(window, label, static_cast<int>(std::size(label)));
+    RECT text = bounds; text.right -= Scale(105);
+    DrawTextBlock(dc, label, text, body_font_, kText);
+    RECT value = bounds; value.left = value.right - Scale(90); value.right -= Scale(48);
+    DrawTextBlock(dc, checked ? L"On" : L"Off", value, small_font_, checked ? kActive : kMuted,
+        DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    RECT track{bounds.right - Scale(38), Scale(3), bounds.right, Scale(23)};
+    FillRoundedRectangle(dc, track, Scale(20), checked ? RGB(27, 113, 87) : kBorder,
+        GetFocus() == window ? kBlue : checked ? RGB(27, 113, 87) : kFaint);
+    DrawStatusDot(dc, track.left + Scale(checked ? 28 : 10), Scale(13), Scale(7), checked ? kActive : kMuted);
+    if (GetFocus() == window) { RECT focus = bounds; InflateRect(&focus, -1, -1); DrawFocusRect(dc, &focus); }
+}
+LRESULT CALLBACK DashboardControls::ToggleProcedure(HWND window, UINT message, WPARAM wparam,
+    LPARAM lparam, UINT_PTR, DWORD_PTR reference) {
+    auto* controls = reinterpret_cast<DashboardControls*>(reference);
+    if (message == WM_PAINT) {
+        PAINTSTRUCT paint{}; HDC dc = BeginPaint(window, &paint);
+        controls->PaintToggle(window, dc); EndPaint(window, &paint); return 0;
+    }
+    if (message == WM_PRINTCLIENT) { controls->PaintToggle(window, reinterpret_cast<HDC>(wparam)); return 0; }
+    if (message == WM_ERASEBKGND) { return 1; }
+    const LRESULT result = DefSubclassProc(window, message, wparam, lparam);
+    if (message == BM_SETCHECK || message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_UPDATEUISTATE) {
+        InvalidateRect(window, nullptr, FALSE);
+    }
+    return result;
+}
+LRESULT CALLBACK DashboardControls::ReasonsProcedure(HWND window, UINT message, WPARAM wparam,
+    LPARAM lparam, UINT_PTR, DWORD_PTR reference) {
+    auto* controls = reinterpret_cast<DashboardControls*>(reference);
+    if (message == WM_KEYDOWN && (wparam == VK_NEXT || wparam == VK_PRIOR)) {
+        controls->ChangeReasonPage(wparam == VK_NEXT ? 1 : -1); return 0;
+    }
+    if (message == WM_MOUSEWHEEL) {
+        controls->ChangeReasonPage(GET_WHEEL_DELTA_WPARAM(wparam) < 0 ? 1 : -1); return 0;
+    }
+    return DefSubclassProc(window, message, wparam, lparam);
+}
+LRESULT CALLBACK DashboardControls::ButtonProcedure(HWND window, UINT message, WPARAM wparam,
+    LPARAM lparam, UINT_PTR, DWORD_PTR) {
+    if (message == WM_MOUSEMOVE && GetPropW(window, L"AgentLatch.Hover") == nullptr) {
+        SetPropW(window, L"AgentLatch.Hover", reinterpret_cast<HANDLE>(1));
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0}; TrackMouseEvent(&track);
+        InvalidateRect(window, nullptr, FALSE);
+    }
+    if (message == WM_MOUSELEAVE || message == WM_ENABLE || message == WM_NCDESTROY) {
+        RemovePropW(window, L"AgentLatch.Hover"); InvalidateRect(window, nullptr, FALSE);
+    }
+    return DefSubclassProc(window, message, wparam, lparam);
 }
 LRESULT CALLBACK DashboardControls::TabProcedure(HWND window, UINT message, WPARAM wparam,
                                                   LPARAM lparam, UINT_PTR, DWORD_PTR reference) {
@@ -720,7 +868,10 @@ bool DashboardControls::ValidateLayout() const {
         }
         if (control.page >= 0) {
             const bool expected = control.page == static_cast<int>(page_) &&
-                ((control.id != kManualStop && control.id != kManualNote) || state_.manual_active);
+                ((control.id != kManualStop && control.id != kManualNote) || state_.manual_active) &&
+                ((control.id != kPreviousSources && control.id != kNextSources) || activity_.size() > kSourcesPerPage) &&
+                (control.id != kReasons || !activity_.empty()) &&
+                ((control.id != kEmptyTitle && control.id != kEmptyHint) || activity_.empty());
             if (((GetWindowLongPtrW(control.window, GWL_STYLE) & WS_VISIBLE) != 0) != expected) { return false; }
         }
     }
@@ -741,7 +892,7 @@ bool ControlPaintCoversBackground(const DashboardControls& controls, HWND window
     HGDIOBJ previous = SelectObject(dc, bitmap);
     bool valid = true;
     for (COLORREF seed : {RGB(255, 255, 255), RGB(255, 0, 255)}) {
-        for (UINT flags : {0u, static_cast<UINT>(ODS_SELECTED), static_cast<UINT>(ODS_FOCUS),
+        for (UINT flags : {0u, static_cast<UINT>(ODS_DISABLED), static_cast<UINT>(ODS_SELECTED), static_cast<UINT>(ODS_FOCUS),
                            static_cast<UINT>(ODS_SELECTED | ODS_FOCUS)}) {
             FillRectangle(dc, bounds, seed);
             if (button) {
@@ -796,12 +947,20 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             }
             controls.Update(state);
             valid = ControlPaintCoversBackground(controls, controls.TabWindow(), kBackground, false) && valid;
-            for (int id : {kMore, kManualStart, kManualStop, kDiagnostics, kRepair}) {
+            for (int id : {kMore, kManualStart, kManualStop, kDiagnostics, kRepair, kPreviousSources, kNextSources}) {
                 valid = ControlPaintCoversBackground(controls, GetDlgItem(parent, id),
                     IsSurface(id) ? kSurface : kBackground, true) && valid;
             }
             for (int id = kModeFirst; id < kModeFirst + 5; ++id) {
                 valid = ControlPaintCoversBackground(controls, GetDlgItem(parent, id), kSurface, false) && valid;
+            }
+            for (int id : {kScreen, kStartup, kNotifications}) {
+                HWND toggle = GetDlgItem(parent, id);
+                for (WPARAM checked : {static_cast<WPARAM>(BST_UNCHECKED), static_cast<WPARAM>(BST_CHECKED)}) {
+                    SendMessageW(toggle, BM_SETCHECK, checked, 0);
+                    valid = SendMessageW(toggle, BM_GETCHECK, 0, 0) == static_cast<LRESULT>(checked) &&
+                        ControlPaintCoversBackground(controls, toggle, kSurface, false) && valid;
+                }
             }
             for (DashboardPage page : {DashboardPage::Overview, DashboardPage::Agents, DashboardPage::Settings}) {
                 controls.SelectPage(page);
@@ -822,11 +981,29 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                         provider == kProviders[index] && mode == IndexMode(selection) && valid;
                 }
             }
-            valid = ListView_GetItemCount(GetDlgItem(parent, kReasons)) == 8 && valid;
-            valid = (GetWindowLongPtrW(GetDlgItem(parent, kReasons), GWL_STYLE) & WS_HSCROLL) == 0 && valid;
+            HWND reasons = GetDlgItem(parent, kReasons);
+            valid = ListView_GetItemCount(reasons) == 5 && ListView_GetCountPerPage(reasons) >= 5 && valid;
+            valid = (GetWindowLongPtrW(reasons, GWL_STYLE) & (WS_HSCROLL | WS_VSCROLL)) == 0 && valid;
+            controls.ChangeReasonPage(1);
+            wchar_t last_page_label[64]{};
+            ListView_GetItemText(reasons, 0, 0, last_page_label, static_cast<int>(std::size(last_page_label)));
+            valid = ListView_GetItemCount(reasons) == 3 && std::wstring(last_page_label) == L"Concurrent task 5" && valid;
+            controls.Update(state);
+            ListView_GetItemText(reasons, 0, 0, last_page_label, static_cast<int>(std::size(last_page_label)));
+            valid = std::wstring(last_page_label) == L"Concurrent task 5" && valid;
+            controls.ChangeReasonPage(-1);
+            valid = ListView_GetItemCount(reasons) == 5 && valid;
             state.latches.clear(); state.manual_active = false; state.active = false;
             controls.Update(state); controls.SelectPage(DashboardPage::Overview);
             valid = controls.ValidateLayout() && ListView_GetItemCount(GetDlgItem(parent, kReasons)) == 1 && valid;
+            DashboardState manual_only = state;
+            manual_only.manual_active = true; manual_only.active = true;
+            Latch manual_source; manual_source.provider = Provider::Manual; manual_source.kind = LatchKind::Manual;
+            manual_source.label = L"Manual keep-awake"; manual_only.latches.push_back(manual_source);
+            controls.Update(manual_only);
+            valid = controls.ValidateLayout() && (GetWindowLongPtrW(reasons, GWL_STYLE) & WS_VISIBLE) == 0 &&
+                (GetWindowLongPtrW(GetDlgItem(parent, kManualStop), GWL_STYLE) & WS_VISIBLE) != 0 && valid;
+            controls.Update(state);
             if (!output_directory.empty()) {
                 state.manual_active = true; state.active = true;
                 Latch manual; manual.provider = Provider::Manual; manual.kind = LatchKind::Timer;
@@ -853,6 +1030,24 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                     state.latches.push_back(reason);
                 }
                 valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"overflow"), dpi) && valid;
+                state.latches.resize(4);
+                state.latches[0].label = L"Codex task";
+                state.latches[0].provider = Provider::Codex;
+                state.latches[0].kind = LatchKind::Detector;
+                state.latches[0].instance_count = 2;
+                state.latches[1].label = L"Claude Code · general-purpose";
+                state.latches[1].instance_count = 1;
+                state.latches[2].label = L"Cursor task";
+                state.latches[2].provider = Provider::Cursor;
+                state.latches[2].instance_count = 1;
+                state.latches[3].label = L"Claude Code task";
+                state.latches[3].in_grace_period = true;
+                state.latches[3].expires_at = state.now + 120000;
+                state.manual_active = true;
+                valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"busy"), dpi) && valid;
+                controls.Update(state);
+                valid = ListView_GetItemCount(reasons) == 4 &&
+                    (GetWindowLongPtrW(reasons, GWL_STYLE) & (WS_HSCROLL | WS_VSCROLL)) == 0 && valid;
             }
             DestroyWindow(parent);
         }

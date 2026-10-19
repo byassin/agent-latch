@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.3.1"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.3.1.0"
+  #define VersionInfoVersion "0.4.0.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"

@@ -699,6 +699,12 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
             ShowTrayMenu(location);
             break;
         }
+        case UiAction::PreviousSources:
+            controls_.ChangeReasonPage(-1);
+            break;
+        case UiAction::NextSources:
+            controls_.ChangeReasonPage(1);
+            break;
         case UiAction::None:
             return;
     }

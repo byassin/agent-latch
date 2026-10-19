@@ -4,7 +4,27 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
+### Redesigned
+
+- Activity-first Overview with five complete two-line rows, colored source/status markers, and a compact independent manual-override strip.
+- Compact left-aligned navigation and one protection summary instead of oversized branding and duplicate status badges.
+- Native, keyboard-accessible Previous/Next activity pages replace the bright classic scrollbar. Current page survives monitoring refreshes; disappearing sources clamp safely.
+- Source counts now describe automatic rows only; concurrent task counts remain on their row, and manual protection is not duplicated in the list.
+- Settings use explicit On/Off switches backed by native checkbox state and accessibility. Buttons have hover, pressed, disabled and keyboard-focus feedback.
+- Centered empty states, stronger secondary-text contrast, consistent spacing, and an improved 620 × 560 logical-pixel layout.
+
+### Validation and documentation
+
+- Five-row capacity, both scrollbar styles, pagination, refresh preservation, provider modes, switch states and dirty-background painting tested at 100%, 125%, 150%, 175%, and 200% scaling.
+- Off-screen fixtures cover mixed four-source work, long lists, manual timers, indefinite override, idle and error states; representative screens visually reviewed separately from structural checks.
+- Refreshed three live-state screenshots and all affected user/developer documentation. No desktop control or agent-detection/power-policy changes.
+- Includes the 0.3.1 painting fixes, which were installed locally but not separately released publicly.
+
 ## [0.3.1] - 2026-10-19
+
+Local-only installer; first publicly released as part of 0.4.0.
 
 ### Fixed
 
