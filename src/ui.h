@@ -94,6 +94,7 @@ private:
     static LRESULT CALLBACK TabProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     static LRESULT CALLBACK ComboProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     void PaintCombo(HWND window, HDC dc) const;
+    void LayoutReasonColumns();
     int Scale(int value) const;
 
     HWND parent_{nullptr};
