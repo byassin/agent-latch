@@ -6,6 +6,7 @@
 #include "power_request.h"
 #include "settings.h"
 #include "ui.h"
+#include "wake_sessions.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -46,6 +47,12 @@ private:
     void OpenDiagnostics();
     void LaunchHookSetup();
     void ShowAbout();
+    void ShowManualMenu();
+    void StartManualSession(unsigned int hours);
+    void SaveManualSession();
+    void SyncManualLatch();
+    DashboardState DashboardSnapshot() const;
+    void ChangeProviderMode(Provider provider, DetectionMode mode);
 
     HICON CreateStateIcon(COLORREF background, COLORREF foreground) const;
     bool AddTrayIcon();
@@ -74,6 +81,9 @@ private:
     PowerRequest power_request_;
     AgentDetector detector_;
     DashboardRenderer renderer_;
+    DashboardControls controls_;
+    AgentRestartGrace restart_grace_;
+    ManualKeepAwake manual_;
 };
 
 }  // namespace agent_latch

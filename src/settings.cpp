@@ -66,6 +66,16 @@ bool Settings::Load() {
 
     keep_display_on = ReadDword(key, L"KeepDisplayOn", keep_display_on ? 1u : 0u) != 0;
     notifications = ReadDword(key, L"Notifications", notifications ? 1u : 0u) != 0;
+    ULONGLONG manual_value = 0;
+    DWORD end_type = 0;
+    DWORD end_size = sizeof(manual_value);
+    if (RegQueryValueExW(key, L"ManualKeepAwakeUntilUtc", nullptr, &end_type,
+                        reinterpret_cast<BYTE*>(&manual_value), &end_size) != ERROR_SUCCESS ||
+        end_type != REG_QWORD || end_size != sizeof(manual_value)) {
+        manual_value = 0;
+    }
+    manual_keep_awake = manual_value != 0;
+    manual_end_utc_milliseconds = manual_value > 1 ? manual_value : 0;
     codex_mode = ReadDetectionMode(key, L"ModeCodex", L"DetectCodex", codex_mode);
     claude_mode = ReadDetectionMode(key, L"ModeClaude", L"DetectClaude", claude_mode);
     cursor_mode = ReadDetectionMode(key, L"ModeCursor", L"DetectCursor", cursor_mode);
@@ -99,6 +109,12 @@ bool Settings::Save() const {
     bool result = true;
     result = WriteDword(key, L"KeepDisplayOn", keep_display_on ? 1u : 0u) && result;
     result = WriteDword(key, L"Notifications", notifications ? 1u : 0u) && result;
+    // One registry value avoids a crash between separate enabled/deadline writes.
+    // 0 = off, 1 = indefinite, otherwise an absolute FILETIME-epoch millisecond end.
+    const ULONGLONG manual_value = !manual_keep_awake ? 0 :
+        manual_end_utc_milliseconds == 0 ? 1 : manual_end_utc_milliseconds;
+    result = RegSetValueExW(key, L"ManualKeepAwakeUntilUtc", 0, REG_QWORD,
+        reinterpret_cast<const BYTE*>(&manual_value), sizeof(manual_value)) == ERROR_SUCCESS && result;
     result = WriteDword(key, L"ModeCodex", static_cast<DWORD>(codex_mode)) && result;
     result = WriteDword(key, L"ModeClaude", static_cast<DWORD>(claude_mode)) && result;
     result = WriteDword(key, L"ModeCursor", static_cast<DWORD>(cursor_mode)) && result;

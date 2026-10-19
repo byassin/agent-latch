@@ -4,6 +4,40 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
+### Added
+
+- Compact native Overview, Agents, and Settings tabs with protection status always visible.
+- Explicit Tasks only / While open / Off dropdowns for each provider, replacing click-to-cycle rows.
+- Real Windows buttons, checkboxes, tab navigation, accessible provider labels, keyboard focus, and a complete protection-reasons list.
+- Non-interactive PNG export of all tabs from current app state, without capturing the desktop or changing focus.
+- Native control, page-visibility, mode-mapping, overflow, and capture regressions at 100%, 150%, and 200% scaling.
+
+### Changed
+
+- Replaced the tall scrolling page with a 600 × 480 logical-pixel desktop window; only long reason lists scroll internally.
+- Shorter protection headlines prevent truncation. Screen, sign-in, and notification settings have dedicated labeled controls.
+- Updated interface, architecture, privacy, contributor documentation and all three tab captures.
+- This public release also includes the manual timers, saved-session restoration, restart-gap protection, and diagnostics first tested in the local-only 0.2.9 build below.
+
+## [0.2.9] - 2026-10-19
+
+Local-only build; first published as part of 0.3.0.
+
+### Added
+
+- Independent manual keep-awake controls in the dashboard and tray: Until stopped, quick hour presets, or 1–168 custom hours, with a real countdown and explicit Stop.
+- Saved manual-session restoration across AgentLatch restarts and sign-in; timed sessions retain their original end rather than receiving a fresh duration.
+- Fixed ten-minute protection across an observed protected provider disappearing for an update/restart or intentional close. It applies to Open mode and recently protected Tasks mode, clears when the provider returns or is disabled, and cannot extend forever through missing scans.
+- Diagnostic records for detector release causes, restart grace, manual-session lifecycle, and persistence failures.
+- Scrollable dashboard for shorter work areas/high DPI, plus native custom-hour validation and layout/hit-target tests at 100%, 150%, and 200% scaling.
+
+### Changed
+
+- Screen-on settings now explicitly apply to all protection, including manual sessions.
+- Documentation distinguishes activity grace, restart grace, manual timers, and renewable hook timeouts, and explains overnight protection limits.
+
 ## [0.2.8] - 2026-10-18
 
 ### Fixed

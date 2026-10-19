@@ -8,6 +8,8 @@
 #include "settings.h"
 #include "types.h"
 #include "watchdog.h"
+#include "wake_sessions.h"
+#include "win_util.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -346,7 +348,13 @@ bool RunDetectorGraceContractTests() {
     return std::wstring(ProviderTrackingStatus(Provider::Codex, DetectionMode::Tasks, registry.Snapshot())).empty();
 }
 
-int RunSelfTests() {
+int RunSelfTests(const std::wstring& snapshot_directory) {
+    if (!RunWakeSessionSelfTests()) {
+        return 64;
+    }
+    if (!RunDashboardContractTests(snapshot_directory)) {
+        return 65;
+    }
     const ULONGLONG now = GetTickCount64();
     LatchRegistry registry;
     if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000) ||
@@ -556,12 +564,32 @@ int HandleUtilityCommand(const CommandLine& command_line) {
         SendIpcMessage(L"EXIT");
         return 0;
     }
+    if (command_line.Has(L"--export-ui-screenshots")) {
+        const std::wstring directory = command_line.ValueAfter(L"--export-ui-screenshots");
+        if (directory.empty() || directory != SanitizeMessageField(directory, 2000)) { return 2; }
+        if (!EnsureBackgroundInstance()) { return 4; }
+        return SendIpcMessage(L"CAPTURE_UI\t" + directory, 20000) ? 0 : 5;
+    }
     if (command_line.Has(L"--release")) {
         const std::wstring id = command_line.ValueAfter(L"--id");
         if (!id.empty() && EnsureBackgroundInstance()) {
             SendIpcMessage(BuildRemoveMessage(L"external:" + id));
         }
         return id.empty() ? 2 : 0;
+    }
+    if (command_line.Has(L"--keep-awake") || command_line.Has(L"--stop-keep-awake")) {
+        const bool stop = command_line.Has(L"--stop-keep-awake");
+        if (stop && command_line.Has(L"--keep-awake")) { return 2; }
+        DWORD hours = 0;
+        if (!stop) {
+            const bool indefinite = command_line.Has(L"--indefinite");
+            const std::wstring hour_text = command_line.ValueAfter(L"--hours");
+            if ((indefinite && command_line.Has(L"--hours")) ||
+                (!indefinite && (!ParseDwordValue(hour_text, &hours) || hours == 0 ||
+                                 hours > ManualKeepAwake::kMaximumHours))) { return 2; }
+        }
+        if (!EnsureBackgroundInstance()) { return 4; }
+        return SendIpcMessage(stop ? L"MANUAL_STOP" : L"MANUAL_START\t" + std::to_wstring(hours)) ? 0 : 5;
     }
     if (command_line.Has(L"--acquire")) {
         const std::wstring id = command_line.ValueAfter(L"--id");
@@ -603,7 +631,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
     const CommandLine command_line = ReadCommandLine();
 
     if (command_line.Has(L"--self-test")) {
-        return RunSelfTests();
+        return RunSelfTests(command_line.ValueAfter(L"--test-render-dir"));
     }
     if (command_line.Has(L"--hook")) {
         return HandleHookInvocation(

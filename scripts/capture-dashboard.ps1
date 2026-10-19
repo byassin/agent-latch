@@ -1,66 +1,31 @@
 [CmdletBinding()]
 param(
-    [string]$OutputPath,
-    [long]$WindowHandle = 0
+    [string]$OutputDirectory,
+    [string]$AgentLatchPath = (Join-Path $env:LOCALAPPDATA 'AgentLatch\AgentLatch.exe')
 )
 
 $ErrorActionPreference = 'Stop'
-if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    $OutputPath = Join-Path $PSScriptRoot '..\assets\dashboard.png'
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $PSScriptRoot '..\assets'
+}
+$OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
+$AgentLatchPath = (Resolve-Path -LiteralPath $AgentLatchPath).Path
+if ((Get-Item -LiteralPath $AgentLatchPath).VersionInfo.FileVersionRaw -lt [version]'0.3.0.0') {
+    throw 'Off-screen export requires AgentLatch 0.3.0 or newer.'
+}
+[System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
+# Product CLI only: no desktop pixels, activation, visible navigation or input.
+$arguments = '--export-ui-screenshots "' + $OutputDirectory + '"'
+$process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+if ($process.ExitCode -ne 0) {
+    throw "AgentLatch capture failed with exit code $($process.ExitCode). Update the running app if its IPC is older."
 }
 Add-Type -AssemblyName System.Drawing
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class AgentLatchCapture {
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Rect { public int Left; public int Top; public int Right; public int Bottom; }
-
-    [DllImport("user32.dll")]
-    public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern IntPtr FindWindow(string className, string windowName);
-
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindow(IntPtr window, int command);
-
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr window);
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+foreach ($name in @('dashboard.png', 'agents.png', 'settings.png')) {
+    $path = Join-Path $OutputDirectory $name
+    $image = [System.Drawing.Image]::FromFile($path)
+    try {
+        if ($image.Width -lt 600 -or $image.Height -lt 480) { throw "Unexpected capture size for $name." }
+        Write-Host ("Exported {0} ({1} x {2})" -f $path, $image.Width, $image.Height)
+    } finally { $image.Dispose() }
 }
-'@
-
-[AgentLatchCapture]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
-
-$window = if ($WindowHandle -ne 0) {
-    [IntPtr]::new($WindowHandle)
-} else {
-    [AgentLatchCapture]::FindWindow('AgentLatch.ControlWindow.v1', $null)
-}
-if ($window -eq [IntPtr]::Zero) {
-    throw 'Open the AgentLatch dashboard before capturing it.'
-}
-[AgentLatchCapture]::ShowWindow($window, 5) | Out-Null
-[AgentLatchCapture]::SetForegroundWindow($window) | Out-Null
-Start-Sleep -Milliseconds 300
-
-$rectangle = [AgentLatchCapture+Rect]::new()
-if (-not [AgentLatchCapture]::GetWindowRect($window, [ref]$rectangle)) {
-    throw 'Could not read the AgentLatch window bounds.'
-}
-
-$width = $rectangle.Right - $rectangle.Left
-$height = $rectangle.Bottom - $rectangle.Top
-$bitmap = [System.Drawing.Bitmap]::new($width, $height)
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen($rectangle.Left, $rectangle.Top, 0, 0, [System.Drawing.Size]::new($width, $height))
-$fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
-[System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($fullOutputPath)) | Out-Null
-$bitmap.Save($fullOutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
-Write-Host "Captured $fullOutputPath"

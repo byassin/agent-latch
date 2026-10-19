@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.2.8 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.3.0 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -30,6 +30,8 @@ add_executable(AgentLatch WIN32
     src/hook_bridge.cpp
     src/diagnostics.cpp
     src/watchdog.cpp
+    src/wake_sessions.cpp
+    src/dashboard_capture.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
 )
 
@@ -48,14 +50,19 @@ target_compile_definitions(AgentLatch PRIVATE
 )
 target_link_libraries(AgentLatch PRIVATE
     advapi32
+    comctl32
     dwmapi
     gdi32
     kernel32
     ole32
     oleaut32
+    oleacc
     shell32
     uiautomationcore
     user32
+    uxtheme
+    uuid
+    windowscodecs
 )
 
 if(MINGW)
