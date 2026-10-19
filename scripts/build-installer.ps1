@@ -6,7 +6,7 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Architecture = 'x64',
 
-    [string]$Version = '0.4.0',
+    [string]$Version = '0.4.1',
 
     [string]$OutputDirectory,
 

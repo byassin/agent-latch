@@ -545,7 +545,7 @@ void DashboardControls::Update(const DashboardState& state) {
     SendMessageW(Find(kNotifications), BM_SETCHECK, state_.settings.notifications ? BST_CHECKED : BST_UNCHECKED, 0);
     activity_.clear();
     for (const auto& latch : state_.latches) {
-        if (latch.provider != Provider::Manual) { activity_.push_back(latch); }
+        if (latch.id != L"manual:keep-awake") { activity_.push_back(latch); }
     }
     UpdateReasonRows();
     LayoutReasonColumns();
@@ -654,7 +654,7 @@ bool DashboardControls::DrawItem(const DRAWITEMSTRUCT* item) const {
         DrawTextBlock(item->hDC, source.label, label, body_font_, kText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         const wchar_t* kind = source.kind == LatchKind::RestartGrace ? L"Update / restart grace" :
             source.in_grace_period ? L"Finishing · release grace" :
-            source.kind == LatchKind::Hook ? L"Agent task" :
+            source.kind == LatchKind::Hook ? L"Agent task" : source.kind == LatchKind::External ? L"External request" :
             source.label.ends_with(L" open") ? L"App presence" : L"Activity detected";
         label.top += Scale(20); label.bottom += Scale(17);
         DrawTextBlock(item->hDC, kind, label, small_font_, kMuted);
@@ -999,14 +999,27 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             DashboardState manual_only = state;
             manual_only.manual_active = true; manual_only.active = true;
             Latch manual_source; manual_source.provider = Provider::Manual; manual_source.kind = LatchKind::Manual;
+            manual_source.id = L"manual:keep-awake";
             manual_source.label = L"Manual keep-awake"; manual_only.latches.push_back(manual_source);
             controls.Update(manual_only);
             valid = controls.ValidateLayout() && (GetWindowLongPtrW(reasons, GWL_STYLE) & WS_VISIBLE) == 0 &&
                 (GetWindowLongPtrW(GetDlgItem(parent, kManualStop), GWL_STYLE) & WS_VISIBLE) != 0 && valid;
+            Latch custom_manual = manual_source;
+            custom_manual.id = L"external:custom-manual";
+            custom_manual.kind = LatchKind::External;
+            custom_manual.label = L"Custom keep-awake request";
+            manual_only.latches.push_back(custom_manual);
+            controls.Update(manual_only);
+            wchar_t custom_label[64]{};
+            ListView_GetItemText(reasons, 0, 0, custom_label, static_cast<int>(std::size(custom_label)));
+            valid = controls.ValidateLayout() && ListView_GetItemCount(reasons) == 1 &&
+                std::wstring(custom_label) == custom_manual.label &&
+                (GetWindowLongPtrW(reasons, GWL_STYLE) & WS_VISIBLE) != 0 && valid;
             controls.Update(state);
             if (!output_directory.empty()) {
                 state.manual_active = true; state.active = true;
                 Latch manual; manual.provider = Provider::Manual; manual.kind = LatchKind::Timer;
+                manual.id = L"manual:keep-awake";
                 manual.label = L"Manual keep-awake"; manual.expires_at = state.manual_deadline;
                 state.latches.push_back(manual);
                 valid = ExportDashboardScreenshots(state, JoinPath(output_directory, std::to_wstring(dpi)), dpi) && valid;
