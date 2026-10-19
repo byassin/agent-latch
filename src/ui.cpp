@@ -9,6 +9,7 @@
 #include <array>
 #include <sstream>
 #include <uxtheme.h>
+#include <initguid.h>
 #include <oleacc.h>
 
 namespace agent_latch {
