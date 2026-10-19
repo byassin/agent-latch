@@ -136,6 +136,7 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 - Detector activity retains a 180-second safety grace by default while the provider remains open. Closing the provider or switching it **Off** releases the detector latch on the next reconciliation cycle.
 - During that grace, the dashboard shows **GRACE**, **release grace**, and **Releasing in…** instead of claiming that app processes are running tasks. One provider's grace contributes one protection reason. Fresh authoritative work restores its exact task count; a separate hook or **Open** latch may continue holding protection after that countdown ends.
 - Hook leases default to 30 minutes and renew whenever useful lifecycle activity arrives.
+- That timeout is crash recovery, not a task-duration prediction. Hook rows show **Active** or an active instance count; only detector release grace displays a release countdown.
 - External leases default to 30 minutes and accept a TTL from 0 to 86,400 seconds.
 - A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.

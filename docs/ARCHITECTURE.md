@@ -63,6 +63,8 @@ Codex process classification recognizes both the Windows package and the bundled
 
 Detector results carry explicit grace state and remaining time. The app represents grace with one detector instance and a bounded lease ending at the original activity deadline; normal reconciliation does not slide that deadline. Fresh lifecycle/UI activity restores exact concurrent counts. Standalone CLI activity can renew its conservative activity grace. The dashboard and tray use a release-grace label, the dashboard renders a countdown and **GRACE** provider status, and diagnostics record the grace provider. **Open** protection shows **OPEN**. These presentation states do not alter Windows power-request semantics.
 
+Hook lease expiry is an internal recovery bound and is displayed as **Active**, never as a predicted task duration. Detector grace retains its explicit release countdown. The compact protection list reserves the section-header area for its overflow count, and task labels are clipped with ellipsis inside their own column.
+
 ## Integration and installer safety
 
 Provider configuration updates are additive and idempotent. The integration script parses the existing JSON, removes stale AgentLatch commands for the same provider, preserves unrelated entries, writes a timestamped sibling backup, and replaces the destination through a temporary file. Claude Code entries use its shell-free executable-and-arguments form, so hook paths bypass shell parsing and expose the direct AgentLatch process exit code. Repair also recognizes and replaces legacy quoted and bare-path shell commands. For Codex and Claude it stores per-user integration-expected, installed-command, and hook-seen health values under `HKCU\Software\AgentLatch`.

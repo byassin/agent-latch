@@ -95,6 +95,8 @@ The dashboard has three explicit system states:
 - **PROTECTED** — one or more latches are active and Windows accepted the system keep-awake request.
 - **ERROR** — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
 
+Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown specifically describes detector grace. When more than two protection reasons exist, the extra count appears in the section header, clear of task-row text.
+
 Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, and restart events. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
 
 ## Build from source
@@ -117,7 +119,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.7
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.8
 ```
 
 ## Design principles

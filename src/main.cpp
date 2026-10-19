@@ -262,6 +262,18 @@ bool RunOpenAIUiActivityContractTests() {
 }
 
 bool RunDetectorGraceContractTests() {
+    Latch hook;
+    hook.kind = LatchKind::Hook;
+    hook.expires_at = 1800000;
+    if (LatchSecondaryText(hook, 0) != L"Active" ||
+        LatchSecondaryText(hook, 1799000) != L"Active") {
+        return false;
+    }
+    hook.expires_at = 3600000;
+    hook.instance_count = 3;
+    if (LatchSecondaryText(hook, 1800000) != L"3 active") {
+        return false;
+    }
     DetectionResult result;
     result.provider = Provider::Codex;
     result.running_instances = 7;
