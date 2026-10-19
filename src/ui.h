@@ -20,6 +20,8 @@ enum class UiAction {
     StopManual,
     OpenDiagnostics,
     MoreMenu,
+    PreviousSources,
+    NextSources,
 };
 
 enum class DashboardPage { Overview, Agents, Settings };
@@ -81,6 +83,7 @@ public:
     HWND ActionWindow(UiAction action) const;
     bool ValidateLayout() const;
     HWND TabWindow() const { return tabs_; }
+    void ChangeReasonPage(int direction);
 
 private:
     struct Control { HWND window; int id; int page; RECT bounds; bool right_anchor; };
@@ -95,6 +98,11 @@ private:
     static LRESULT CALLBACK ComboProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     void PaintCombo(HWND window, HDC dc) const;
     void LayoutReasonColumns();
+    void UpdateReasonRows();
+    void PaintToggle(HWND window, HDC dc) const;
+    static LRESULT CALLBACK ToggleProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    static LRESULT CALLBACK ReasonsProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    static LRESULT CALLBACK ButtonProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     int Scale(int value) const;
 
     HWND parent_{nullptr};
@@ -113,7 +121,8 @@ private:
     HIMAGELIST row_images_{nullptr};
     DashboardState state_;
     std::vector<Control> controls_;
-    std::vector<std::pair<std::wstring, std::wstring>> reason_text_;
+    std::vector<Latch> activity_;
+    std::size_t reason_page_{0};
 };
 
 COLORREF ProviderColor(Provider provider);
