@@ -4,7 +4,17 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-19
+
+First public release of the activity-first 0.4 redesign below. The 0.4.0 candidate was stopped before public binary publication after final source-visibility review.
+
+- Only the built-in `manual:keep-awake` session is represented by the manual-override strip. External leases using the supported `manual` source key remain visible in the activity list.
+- Added a hidden-control regression for a built-in manual session alongside a custom manual-source request. Power reconciliation is unchanged.
+- Refreshed live-state images and version metadata for the final 0.4.1 build.
+
 ## [0.4.0] - 2026-10-19
+
+Pre-publication candidate; shipped as 0.4.1 after final review.
 
 ### Redesigned
 

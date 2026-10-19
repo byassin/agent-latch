@@ -132,7 +132,7 @@ The dashboard has three explicit system states:
 - **Sleep protection is on** (PROTECTED) — one or more latches are active and Windows accepted the system keep-awake request.
 - **Sleep protection needs attention** (ERROR) — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
 
-Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes automatic sources, not task totals: one row can contain several concurrent tasks. Manual protection is shown only in its override strip, not duplicated in the activity list. All automatic sources remain available through the native, keyboard-accessible five-row pages; monitoring refreshes preserve the current page.
+Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes agent/custom sources, not task totals: one row can contain several concurrent tasks. The built-in manual override is shown only in its strip, not duplicated in the activity list. Custom requests remain visible, including external leases using the `manual` source key. All activity sources remain available through the native, keyboard-accessible five-row pages; monitoring refreshes preserve the current page.
 
 Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, detector release reasons, restart-grace transitions, and manual-session starts/stops/expiry. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
 
@@ -160,7 +160,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.0
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.1
 ```
 
 ## Design principles

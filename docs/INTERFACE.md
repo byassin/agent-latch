@@ -12,7 +12,7 @@ Cancel, Escape, or the custom-hours dialog's close button leaves the existing se
 
 The activity list gives priority to agent work. Each row has a colored provider marker, name, signal/grace description, and right-aligned task status. Five complete rows fit without a scrollbar. More than five sources enables named Previous/Next buttons; Page Up/Page Down or the mouse wheel over the list also changes pages. The current page survives monitoring refreshes and clamps safely when sources disappear.
 
-The source count is the number of automatic activity rows, not a total task count. One Codex source can contain multiple tasks. Manual protection appears only in its separate strip, so it is not duplicated or counted as an agent. A calm, centered empty state explains when manual protection alone is keeping the PC awake. Activity grace and update/restart grace are labeled as grace, not running tasks or predicted completion times.
+The source count is the number of agent/custom activity rows, not a total task count. One Codex source can contain multiple tasks. The built-in manual session appears only in its separate strip, so it is not duplicated or counted as an agent. Custom external requests remain visible even when their source key is `manual`. A calm, centered empty state explains when the built-in manual override alone is keeping the PC awake. Activity grace and update/restart grace are labeled as grace, not running tasks or predicted completion times.
 
 ![Overview](../assets/dashboard.png)
 
