@@ -92,6 +92,7 @@ std::wstring DetectorId(Provider provider) {
 }
 
 INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, LPARAM) {
+    if (message == WM_CLOSE) { EndDialog(dialog, 0); return TRUE; }
     if (message == WM_INITDIALOG) {
         SetDlgItemInt(dialog, IDC_MANUAL_HOURS, 8, FALSE);
         SendDlgItemMessageW(dialog, IDC_MANUAL_HOURS, EM_SETLIMITTEXT, 3, 0);
@@ -110,7 +111,7 @@ INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, 
                             L"AgentLatch", MB_OK | MB_ICONINFORMATION);
                 return TRUE;
             }
-            EndDialog(dialog, static_cast<INT_PTR>(hours));
+            EndDialog(dialog, kManualHoursDialogAcceptedBase + static_cast<INT_PTR>(hours));
             return TRUE;
         }
     }
@@ -431,9 +432,10 @@ void AgentLatchApp::ShowManualMenu() {
     } else if (command >= 101 && command <= 124) {
         StartManualSession(command - 100);
     } else if (command == 2) {
-        const INT_PTR duration = DialogBoxParamW(instance_, MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
+        const INT_PTR result = DialogBoxParamW(instance_, MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
             window_, ManualHoursProcedure, 0);
-        if (duration > 0) { StartManualSession(static_cast<unsigned int>(duration)); }
+        const unsigned int duration = ManualHoursFromDialogResult(result);
+        if (duration != 0) { StartManualSession(duration); }
     }
 }
 

@@ -7,6 +7,9 @@
 
 namespace agent_latch {
 
+constexpr INT_PTR kManualHoursDialogAcceptedBase = 1000;
+unsigned int ManualHoursFromDialogResult(INT_PTR result);
+
 // A single fixed deadline per disappearance, never renewed by missing scans.
 class AgentRestartGrace {
 public:

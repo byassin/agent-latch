@@ -18,6 +18,7 @@ All notable changes to AgentLatch will be documented here.
 
 - Replaced the tall scrolling page with a 600 × 480 logical-pixel desktop window; only long reason lists scroll internally.
 - Shorter protection headlines prevent truncation. Screen, sign-in, and notification settings have dedicated labeled controls.
+- Closing or canceling the custom-hours dialog cannot accidentally start a timer; accepted hour results are encoded separately from Windows dialog status codes.
 - Updated interface, architecture, privacy, contributor documentation and all three tab captures.
 - This public release also includes the manual timers, saved-session restoration, restart-gap protection, and diagnostics first tested in the local-only 0.2.9 build below.
 

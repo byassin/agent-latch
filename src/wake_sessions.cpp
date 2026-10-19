@@ -4,6 +4,12 @@
 
 namespace agent_latch {
 
+unsigned int ManualHoursFromDialogResult(INT_PTR result) {
+    return result > kManualHoursDialogAcceptedBase &&
+           result <= kManualHoursDialogAcceptedBase + ManualKeepAwake::kMaximumHours
+        ? static_cast<unsigned int>(result - kManualHoursDialogAcceptedBase) : 0;
+}
+
 bool HoldFinalHookRelease(LatchRegistry& registry, Provider provider, ULONGLONG now) {
     for (const Latch& latch : registry.Snapshot()) {
         if (latch.provider == provider && latch.kind == LatchKind::Hook) { return false; }
@@ -88,6 +94,12 @@ ULONGLONG UtcMilliseconds() {
 }
 
 bool RunWakeSessionSelfTests() {
+    if (ManualHoursFromDialogResult(0) != 0 || ManualHoursFromDialogResult(IDCANCEL) != 0 ||
+        ManualHoursFromDialogResult(IDOK) != 0 || ManualHoursFromDialogResult(-1) != 0 ||
+        ManualHoursFromDialogResult(1000) != 0 || ManualHoursFromDialogResult(1001) != 1 ||
+        ManualHoursFromDialogResult(1168) != 168 || ManualHoursFromDialogResult(1169) != 0) {
+        return false;
+    }
     AgentRestartGrace grace;
     constexpr Provider provider = Provider::ClaudeCode;
     constexpr DetectionMode open = DetectionMode::Open;

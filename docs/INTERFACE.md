@@ -8,6 +8,8 @@ The protection banner stays visible on every tab. **READY** means normal Windows
 
 Use **Keep awake…** to choose Until stopped, a quick hour preset, or 1–168 custom hours. An active session shows its real remaining time or Until stopped. **Change duration…** replaces only that session. **Stop** leaves agent tracking and other reasons alone. Saved sessions restore across app restarts; timers retain their original end.
 
+Cancel, Escape, or the custom-hours dialog's close button leaves the existing session unchanged.
+
 The protection list contains every active source. Concurrent task counts are in the Status column, not confused with the number of source rows. The list supports selection, arrow keys, and its own scrolling when necessary. Activity grace and update/restart grace are labeled as grace, not running tasks or estimated completion times.
 
 ![Overview](../assets/dashboard.png)
