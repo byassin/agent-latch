@@ -29,11 +29,14 @@ jobs:
       - name: Verify x64
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath .\build-x64\Release\AgentLatch.exe -ArgumentList '--self-test' -Wait -PassThru
+          $renderDirectory = [System.IO.Path]::GetFullPath('.\build-x64\ui-tests')
+          New-Item -ItemType Directory -Path $renderDirectory -Force | Out-Null
+          $process = Start-Process -FilePath .\build-x64\Release\AgentLatch.exe -ArgumentList @('--self-test', '--test-render-dir', $renderDirectory) -Wait -PassThru
           if ($process.ExitCode -ne 0) {
             throw "AgentLatch self-test failed with exit code $($process.ExitCode)."
           }
           .\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion '${{ steps.version.outputs.version }}'
+          .\tests\manual-cli.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 

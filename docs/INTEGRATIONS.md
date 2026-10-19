@@ -132,15 +132,18 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 
 ## Lease behavior
 
+On the **Agents** tab, explicit **Tasks only**, **While open**, and **Off** dropdowns map to the internal Tasks, Open, and Off modes. Rows no longer cycle through modes when clicked. Switching tabs never changes integration or detection settings.
+
 - Native detector state is refreshed every two seconds; Codex lifecycle files are rediscovered every five seconds.
-- Detector activity retains a 180-second safety grace by default while the provider remains open. Closing the provider or switching it **Off** releases the detector latch on the next reconciliation cycle.
-- During that grace, the dashboard shows **GRACE**, **release grace**, and **Releasing in…** instead of claiming that app processes are running tasks. One provider's grace contributes one protection reason. Fresh authoritative work restores its exact task count; a separate hook or **Open** latch may continue holding protection after that countdown ends.
+- Detector activity retains a 180-second safety grace by default while the provider remains open. A protected provider disappearing receives a separate fixed ten-minute restart grace in Open mode, or Tasks mode if protected work was just observed. Both intentional closes and updates receive this bounded grace. A returning process clears it; repeated missing-process scans do not extend it. Switching a provider **Off** cancels its automatic protection immediately.
+- During that grace, Overview shows **release grace** and **Releasing in…**, and Agents describes **Finishing protection**, instead of claiming that app processes are running tasks. One provider's grace contributes one protection reason. Fresh authoritative work restores its exact task count; a separate hook or **Open** latch may continue holding protection after that countdown ends.
 - Hook leases default to 30 minutes and renew whenever useful lifecycle activity arrives.
-- That timeout is crash recovery, not a task-duration prediction. Hook rows show **Active** or an active instance count; only detector release grace displays a release countdown.
+- That timeout is crash recovery, not a task-duration prediction. Hook rows show **Active** or an active instance count; detector and restart grace display release countdowns. Manual timers display the actual manual session time remaining.
 - External leases default to 30 minutes and accept a TTL from 0 to 86,400 seconds.
-- A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
+- A stop event releases its matching hook session or subagent immediately. Releasing the final provider hook adds five seconds of settling grace so a SessionEnd arriving just before updater-driven process removal cannot briefly drop protection. An independent detector, restart grace, or manual session may continue holding protection.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.
 - Disabling a provider in the dashboard removes that provider's automatic and hook latches immediately.
+- Manual keep-awake is independent of provider integration and Off settings. Select Until stopped or 1–168 hours from the dashboard or tray; Stop cancels only the manual session. Its explicit saved choice survives app restarts, while automatic leases do not.
 
 ## Diagnosing a missed latch or sleep
 
@@ -148,4 +151,6 @@ First check the dashboard state. **READY** means no active source was detected. 
 
 Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **PROTECTED**.
 
-Latch-state records include `grace=Codex` (or another provider name) when a detector is in release grace. **GRACE** is a temporary keep-awake reason; **OPEN** means you selected presence protection. Neither label means a task is currently running.
+Latch-state records include `grace=Codex` (or another provider name) when protection is in release or restart grace. `detector_released` records distinguish disabled, absent-process, and finished-activity releases; explicit policy changes also emit `provider_mode_changed`. `restart_grace_started` / `restart_grace_ended` explain disappearance, return, or deadline expiry; manual-session events identify starts, explicit stops, and timer expiry. Grace is a temporary keep-awake reason; **While open** means presence protection. Neither means a task is currently running.
+
+If a provider updated overnight, correlate these records with Windows AppX deployment events and Kernel-Power sleep events. An update may force-close the provider; a ten-minute grace covers a brief return, not an indefinitely failed update. Use a manual overnight session when wake protection must not depend on agent presence. AgentLatch cannot stop another app updating or guarantee the agent's task survives its update.

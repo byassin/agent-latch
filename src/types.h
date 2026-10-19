@@ -22,6 +22,7 @@ enum class LatchKind {
     Hook,
     Detector,
     External,
+    RestartGrace,
 };
 
 struct Latch {

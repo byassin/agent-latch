@@ -1,3 +1,5 @@
 #pragma once
 
 #define IDI_AGENTLATCH 101
+#define IDD_MANUAL_HOURS 102
+#define IDC_MANUAL_HOURS 1001

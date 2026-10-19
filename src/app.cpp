@@ -1,6 +1,8 @@
 #include "app.h"
 
 #include "ipc.h"
+#include "dashboard_capture.h"
+#include "resource.h"
 #include "version.h"
 #include "win_util.h"
 
@@ -31,6 +33,8 @@ constexpr UINT kMenuAbout = 109;
 constexpr UINT kMenuExit = 110;
 constexpr UINT kMenuToggleNotifications = 111;
 constexpr UINT kMenuOpenDiagnostics = 112;
+constexpr UINT kMenuManual = 113;
+constexpr UINT kMenuStopManual = 114;
 
 const GUID kTrayGuid = {
     0x8a9a17da,
@@ -87,6 +91,33 @@ std::wstring DetectorId(Provider provider) {
     return std::wstring(L"detector:") + ProviderKey(provider);
 }
 
+INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, LPARAM) {
+    if (message == WM_CLOSE) { EndDialog(dialog, 0); return TRUE; }
+    if (message == WM_INITDIALOG) {
+        SetDlgItemInt(dialog, IDC_MANUAL_HOURS, 8, FALSE);
+        SendDlgItemMessageW(dialog, IDC_MANUAL_HOURS, EM_SETLIMITTEXT, 3, 0);
+        return TRUE;
+    }
+    if (message == WM_COMMAND) {
+        if (LOWORD(wparam) == IDCANCEL) {
+            EndDialog(dialog, 0);
+            return TRUE;
+        }
+        if (LOWORD(wparam) == IDOK) {
+            BOOL valid = FALSE;
+            const UINT hours = GetDlgItemInt(dialog, IDC_MANUAL_HOURS, &valid, FALSE);
+            if (!valid || hours < 1 || hours > ManualKeepAwake::kMaximumHours) {
+                MessageBoxW(dialog, L"Enter a whole number of hours from 1 to 168.",
+                            L"AgentLatch", MB_OK | MB_ICONINFORMATION);
+                return TRUE;
+            }
+            EndDialog(dialog, kManualHoursDialogAcceptedBase + static_cast<INT_PTR>(hours));
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 UiAction MenuToAction(UINT command) {
     switch (command) {
         case kMenuToggleDisplay:
@@ -97,6 +128,10 @@ UiAction MenuToAction(UINT command) {
             return UiAction::ToggleNotifications;
         case kMenuSetupHooks:
             return UiAction::SetupHooks;
+        case kMenuManual:
+            return UiAction::ManualMenu;
+        case kMenuStopManual:
+            return UiAction::StopManual;
         default:
             return UiAction::None;
     }
@@ -165,9 +200,19 @@ AgentLatchApp::~AgentLatchApp() {
 
 bool AgentLatchApp::Initialize(bool show_window) {
     settings_.Load();
+    manual_.Restore(settings_.manual_keep_awake, settings_.manual_end_utc_milliseconds,
+                    GetTickCount64(), UtcMilliseconds());
+    if (settings_.manual_keep_awake && !manual_.Active()) {
+        SaveManualSession();
+    }
+    SyncManualLatch();
     diagnostics_.Write(
         L"app_started",
         L"version=" + std::wstring(kAgentLatchVersion) + L" pid=" + std::to_wstring(GetCurrentProcessId()));
+    if (manual_.Active()) {
+        diagnostics_.Write(L"manual_session_restored", manual_.Deadline() == 0 ?
+            L"mode=until_stopped" : L"mode=timed original_end_preserved=1");
+    }
     const UINT dpi = GetDpiForSystem();
     renderer_.Initialize(dpi);
 
@@ -192,14 +237,15 @@ bool AgentLatchApp::Initialize(bool show_window) {
 
     SIZE client_size = renderer_.PreferredClientSize();
     RECT window_rectangle{0, 0, client_size.cx, client_size.cy};
-    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     AdjustWindowRectEx(&window_rectangle, style, FALSE, 0);
     const int window_width = window_rectangle.right - window_rectangle.left;
-    const int window_height = window_rectangle.bottom - window_rectangle.top;
     RECT work_area{};
     if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0)) {
         work_area = RECT{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
     }
+    const int window_height = std::min(window_rectangle.bottom - window_rectangle.top,
+                                       work_area.bottom - work_area.top);
     const int x = std::max(work_area.left, work_area.left + (work_area.right - work_area.left - window_width) / 2);
     const int y = std::max(work_area.top, work_area.top + (work_area.bottom - work_area.top - window_height) / 2);
 
@@ -220,6 +266,7 @@ bool AgentLatchApp::Initialize(bool show_window) {
     if (window_ == nullptr) {
         return false;
     }
+    if (!controls_.Initialize(window_, dpi)) { return false; }
 
     const BOOL dark_mode = TRUE;
     DwmSetWindowAttribute(window_, 20, &dark_mode, sizeof(dark_mode));
@@ -241,6 +288,7 @@ int AgentLatchApp::Run(bool show_window) {
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (controls_.TranslateKey(message) || IsDialogMessageW(window_, &message)) { continue; }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
@@ -288,8 +336,121 @@ void AgentLatchApp::ShowDashboard() {
     InvalidateRect(window_, nullptr, FALSE);
 }
 
+DashboardState AgentLatchApp::DashboardSnapshot() const {
+    DashboardState state;
+    state.page = controls_.Page();
+    state.active = latches_.IsActive();
+    state.system_request_accepted = power_request_.IsAvailable() &&
+        power_request_.LastSystemError() == ERROR_SUCCESS &&
+        (!state.active || power_request_.IsSystemRequired());
+    state.system_request_error = power_request_.LastSystemError();
+    state.display_request_accepted = !state.active || !settings_.keep_display_on ||
+        (power_request_.IsDisplayRequired() && power_request_.LastDisplayError() == ERROR_SUCCESS);
+    state.display_request_error = power_request_.LastDisplayError();
+    state.keep_display_on = settings_.keep_display_on;
+    state.start_with_windows = IsStartWithWindowsEnabled();
+    state.manual_active = manual_.Active();
+    state.manual_deadline = manual_.Deadline();
+    state.now = GetTickCount64();
+    state.latches = latches_.Snapshot();
+    state.settings = settings_;
+    return state;
+}
+
+void AgentLatchApp::ChangeProviderMode(Provider provider, DetectionMode mode) {
+    if (settings_.ProviderMode(provider) == mode) { return; }
+    if (latches_.Find(L"restart:" + std::wstring(ProviderKey(provider))) != nullptr) {
+        diagnostics_.Write(L"restart_grace_ended", std::wstring(L"provider=") +
+            ProviderShortName(provider) + L" reason=mode_changed");
+    }
+    settings_.SetProviderMode(provider, mode);
+    latches_.RemoveByProvider(provider);
+    diagnostics_.Write(L"provider_mode_changed", std::wstring(L"provider=") +
+        ProviderShortName(provider) + L" mode=" + DetectionModeLabel(mode));
+    if (!settings_.Save()) {
+        MessageBoxW(window_, L"Windows could not save the selected agent mode.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+    }
+    Tick(true);
+}
+
+void AgentLatchApp::SaveManualSession() {
+    settings_.manual_keep_awake = manual_.Active();
+    settings_.manual_end_utc_milliseconds = manual_.UtcEnd();
+    if (!settings_.Save()) {
+        diagnostics_.Write(L"manual_persistence_failed", L"reason=settings_write_failed");
+        MessageBoxW(window_, L"The current session was updated, but Windows could not save it. "
+                    L"It may not be restored correctly after restarting AgentLatch.",
+                    L"AgentLatch", MB_OK | MB_ICONWARNING);
+    }
+}
+
+void AgentLatchApp::SyncManualLatch() {
+    const ULONGLONG now = GetTickCount64();
+    if (manual_.Expire(now)) { SaveManualSession(); }
+    if (manual_.Active()) {
+        latches_.Upsert(L"manual:keep-awake", Provider::Manual,
+            manual_.Deadline() == 0 ? LatchKind::Manual : LatchKind::Timer,
+            L"Manual keep-awake", L"Independent of agent activity", now,
+            manual_.Deadline() == 0 ? 0 : manual_.Deadline() - now);
+    } else {
+        latches_.Remove(L"manual:keep-awake");
+    }
+}
+
+void AgentLatchApp::StartManualSession(unsigned int hours) {
+    if (manual_.Start(hours, GetTickCount64(), UtcMilliseconds())) {
+        SaveManualSession();
+        SyncManualLatch();
+        diagnostics_.Write(L"manual_session_started", hours == 0 ? L"mode=until_stopped" :
+            L"mode=timed hours=" + std::to_wstring(hours));
+        Tick(false);
+    }
+}
+
+void AgentLatchApp::ShowManualMenu() {
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) { return; }
+    AppendMenuW(menu, MF_STRING, 1, L"Until stopped");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    constexpr std::array<unsigned int, 6> hours = {1, 2, 4, 8, 12, 24};
+    for (unsigned int duration : hours) {
+        const std::wstring label = std::to_wstring(duration) + (duration == 1 ? L" hour" : L" hours");
+        AppendMenuW(menu, MF_STRING, 100 + duration, label.c_str());
+    }
+    AppendMenuW(menu, MF_STRING, 2, L"Custom hours...");
+    POINT location{};
+    GetCursorPos(&location);
+    if (GetFocus() == controls_.ActionWindow(UiAction::ManualMenu)) {
+        RECT bounds{}; GetWindowRect(controls_.ActionWindow(UiAction::ManualMenu), &bounds);
+        location = POINT{bounds.left, bounds.bottom};
+    }
+    const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+        location.x, location.y, 0, window_, nullptr);
+    DestroyMenu(menu);
+    if (command == 1) {
+        StartManualSession(0);
+    } else if (command >= 101 && command <= 124) {
+        StartManualSession(command - 100);
+    } else if (command == 2) {
+        const INT_PTR result = DialogBoxParamW(instance_, MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
+            window_, ManualHoursProcedure, 0);
+        const unsigned int duration = ManualHoursFromDialogResult(result);
+        if (duration != 0) { StartManualSession(duration); }
+    }
+}
+
 void AgentLatchApp::Tick(bool scan_agents) {
     const ULONGLONG now = GetTickCount64();
+    if (manual_.Expire(now)) {
+        diagnostics_.Write(L"manual_session_ended", L"reason=timer_expired");
+        SaveManualSession();
+    }
+    for (const Latch& latch : latches_.Snapshot()) {
+        if (latch.kind == LatchKind::RestartGrace && latch.expires_at <= now) {
+            diagnostics_.Write(L"restart_grace_ended", std::wstring(L"provider=") +
+                ProviderShortName(latch.provider) + L" reason=deadline_reached");
+        }
+    }
     latches_.Expire(now);
     if (scan_agents) {
         settings_.RefreshIntegrationStatus();
@@ -297,6 +458,7 @@ void AgentLatchApp::Tick(bool scan_agents) {
     }
     ReconcilePowerState();
     UpdateTrayIcon();
+    controls_.Update(DashboardSnapshot());
     if (window_ != nullptr && IsWindowVisible(window_)) {
         InvalidateRect(window_, nullptr, FALSE);
     }
@@ -324,7 +486,43 @@ void AgentLatchApp::UpdateDetectorLatches() {
                 instance_count,
                 task_mode && result.in_grace_period);
         } else {
+            if (latches_.Find(id) != nullptr) {
+                diagnostics_.Write(L"detector_released", std::wstring(L"provider=") +
+                    ProviderShortName(result.provider) + L" reason=" +
+                    (mode == DetectionMode::Off ? L"disabled" :
+                     result.running_instances == 0 ? L"process_absent" : L"activity_finished"));
+            }
             latches_.Remove(id);
+        }
+        const std::wstring restart_id = L"restart:" + std::wstring(ProviderKey(result.provider));
+        const Latch* previous_restart = latches_.Find(restart_id);
+        const bool had_restart = previous_restart != nullptr;
+        bool protected_work = false;
+        for (const Latch& latch : latches_.Snapshot()) {
+            if (latch.provider == result.provider && latch.kind != LatchKind::RestartGrace) {
+                protected_work = true;
+                break;
+            }
+        }
+        const ULONGLONG deadline = restart_grace_.Update(result.provider, mode,
+            result.running_instances > 0, protected_work, now);
+        if (deadline != 0) {
+            latches_.Upsert(restart_id, result.provider, LatchKind::RestartGrace,
+                std::wstring(ProviderShortName(result.provider)) + L" · restart grace",
+                L"Waiting for the app to return after a close, update, or restart",
+                now, deadline - now, 1, true);
+            if (!had_restart) {
+                diagnostics_.Write(L"restart_grace_started", std::wstring(L"provider=") +
+                    ProviderShortName(result.provider) + L" seconds=600 reason=process_absent");
+            }
+        } else {
+            latches_.Remove(restart_id);
+            if (had_restart) {
+                diagnostics_.Write(L"restart_grace_ended", std::wstring(L"provider=") +
+                    ProviderShortName(result.provider) + L" reason=" +
+                    (mode == DetectionMode::Off ? L"disabled" :
+                     result.running_instances > 0 ? L"app_returned" : L"deadline_reached"));
+            }
         }
     }
 }
@@ -392,9 +590,37 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
         DestroyWindow(window_);
         return true;
     }
+    if (fields[0] == L"CAPTURE_UI" && fields.size() == 2 && !fields[1].empty()) {
+        const bool success = ExportDashboardScreenshots(DashboardSnapshot(), fields[1], GetDpiForWindow(window_));
+        diagnostics_.Write(L"dashboard_capture", success ? L"success=1" : L"success=0");
+        return success;
+    }
+    if (fields[0] == L"MANUAL_START" && fields.size() == 2) {
+        ULONGLONG hours = 0;
+        if (!ParseUnsignedLongLong(fields[1], &hours) || hours > ManualKeepAwake::kMaximumHours) {
+            return false;
+        }
+        StartManualSession(static_cast<unsigned int>(hours));
+        return true;
+    }
+    if (fields[0] == L"MANUAL_STOP" && fields.size() == 1) {
+        ExecuteAction(UiAction::StopManual);
+        return true;
+    }
     if (fields[0] == L"REMOVE" && fields.size() == 2) {
+        const Latch* existing = latches_.Find(fields[1]);
+        const Provider provider = existing == nullptr ? Provider::External : existing->provider;
+        const bool released_hook = existing != nullptr && existing->kind == LatchKind::Hook;
         latches_.Remove(fields[1]);
-        Tick(false);
+        if (released_hook && settings_.ProviderMode(provider) == DetectionMode::Tasks) {
+            if (HoldFinalHookRelease(latches_, provider, GetTickCount64())) {
+                // Updaters can send SessionEnd before the process disappears.
+                // Keep power continuously held until the next presence samples.
+                diagnostics_.Write(L"hook_release_grace", std::wstring(L"provider=") +
+                    ProviderShortName(provider) + L" seconds=5");
+            }
+        }
+        Tick(true);
         return true;
     }
     if (fields[0] == L"SEEN" && fields.size() == 2) {
@@ -432,37 +658,15 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
         GetTickCount64(),
         ttl,
         instance_count);
+    if (kind == LatchKind::Hook) {
+        latches_.Remove(L"hook-settle:" + std::wstring(ProviderKey(provider)));
+    }
     Tick(false);
     return true;
 }
 
 void AgentLatchApp::ExecuteAction(UiAction action) {
     switch (action) {
-        case UiAction::ToggleCodex:
-            settings_.CycleProviderMode(Provider::Codex);
-            latches_.RemoveByProvider(Provider::Codex);
-            settings_.Save();
-            break;
-        case UiAction::ToggleClaude:
-            settings_.CycleProviderMode(Provider::ClaudeCode);
-            latches_.RemoveByProvider(Provider::ClaudeCode);
-            settings_.Save();
-            break;
-        case UiAction::ToggleCursor:
-            settings_.CycleProviderMode(Provider::Cursor);
-            latches_.RemoveByProvider(Provider::Cursor);
-            settings_.Save();
-            break;
-        case UiAction::ToggleOpenCode:
-            settings_.CycleProviderMode(Provider::OpenCode);
-            latches_.RemoveByProvider(Provider::OpenCode);
-            settings_.Save();
-            break;
-        case UiAction::ToggleGemini:
-            settings_.CycleProviderMode(Provider::GeminiCli);
-            latches_.RemoveByProvider(Provider::GeminiCli);
-            settings_.Save();
-            break;
         case UiAction::ToggleDisplay:
             settings_.keep_display_on = !settings_.keep_display_on;
             settings_.Save();
@@ -477,10 +681,28 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
         case UiAction::SetupHooks:
             LaunchHookSetup();
             break;
+        case UiAction::ManualMenu:
+            ShowManualMenu();
+            break;
+        case UiAction::StopManual:
+            manual_.Stop();
+            latches_.Remove(L"manual:keep-awake");
+            diagnostics_.Write(L"manual_session_ended", L"reason=user_stopped");
+            SaveManualSession();
+            break;
+        case UiAction::OpenDiagnostics:
+            OpenDiagnostics();
+            break;
+        case UiAction::MoreMenu: {
+            RECT bounds{}; GetWindowRect(controls_.ActionWindow(UiAction::MoreMenu), &bounds);
+            POINT location{bounds.left, bounds.bottom};
+            ShowTrayMenu(location);
+            break;
+        }
         case UiAction::None:
             return;
     }
-    Tick(false);
+    Tick(true);
 }
 
 void AgentLatchApp::ShowTrayMenu(POINT location) {
@@ -494,6 +716,11 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
                               ? L"Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                               : L"Windows can sleep";
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, status.c_str());
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kMenuManual, manual_.Active() ? L"Change manual keep-awake..." : L"Keep awake manually...");
+    if (manual_.Active()) {
+        AppendMenuW(menu, MF_STRING, kMenuStopManual, L"Stop manual keep-awake");
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (settings_.keep_display_on ? MF_CHECKED : MF_UNCHECKED), kMenuToggleDisplay, L"Keep display on while latched");
     AppendMenuW(
@@ -757,42 +984,34 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             HDC dc = BeginPaint(window_, &paint);
             RECT client{};
             GetClientRect(window_, &client);
-            DashboardState state;
-            state.active = latches_.IsActive();
-            state.system_request_accepted = power_request_.IsAvailable() &&
-                                            power_request_.LastSystemError() == ERROR_SUCCESS &&
-                                            (!state.active || power_request_.IsSystemRequired());
-            state.system_request_error = power_request_.LastSystemError();
-            state.display_request_accepted = !state.active || !settings_.keep_display_on ||
-                                             (power_request_.IsDisplayRequired() &&
-                                              power_request_.LastDisplayError() == ERROR_SUCCESS);
-            state.display_request_error = power_request_.LastDisplayError();
-            state.keep_display_on = settings_.keep_display_on;
-            state.start_with_windows = IsStartWithWindowsEnabled();
-            state.now = GetTickCount64();
-            state.latches = latches_.Snapshot();
-            state.settings = settings_;
-            renderer_.Paint(dc, client, state);
+            renderer_.Paint(dc, client, DashboardSnapshot());
             EndPaint(window_, &paint);
             return 0;
         }
         case WM_ERASEBKGND:
             return 1;
-        case WM_LBUTTONUP: {
-            POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-            ExecuteAction(renderer_.HitTest(point));
+        case WM_COMMAND: {
+            if (LOWORD(wparam) == IDCANCEL) { ShowWindow(window_, SW_HIDE); return 0; }
+            Provider provider{}; DetectionMode mode{};
+            if (controls_.ReadProviderChange(wparam, &provider, &mode)) {
+                ChangeProviderMode(provider, mode);
+            } else { ExecuteAction(controls_.ActionForCommand(wparam)); }
             return 0;
         }
-        case WM_SETCURSOR: {
-            POINT point{};
-            GetCursorPos(&point);
-            ScreenToClient(window_, &point);
-            if (renderer_.HitTest(point) != UiAction::None) {
-                SetCursor(LoadCursorW(nullptr, IDC_HAND));
-                return TRUE;
-            }
+        case WM_NOTIFY:
+            if (controls_.HandleNotify(reinterpret_cast<const NMHDR*>(lparam))) { return 0; }
             break;
-        }
+        case WM_DRAWITEM:
+            if (controls_.DrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam))) { return TRUE; }
+            break;
+        case WM_MEASUREITEM:
+            if (controls_.MeasureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lparam))) { return TRUE; }
+            break;
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN:
+        case WM_CTLCOLORLISTBOX:
+            return reinterpret_cast<LRESULT>(controls_.ControlColor(
+                reinterpret_cast<HDC>(wparam), reinterpret_cast<HWND>(lparam)));
         case WM_COPYDATA: {
             const COPYDATASTRUCT* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
             if (data == nullptr || data->dwData != kCopyDataSignature || data->lpData == nullptr ||
@@ -815,14 +1034,22 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             return 0;
         case WM_DPICHANGED: {
             renderer_.Initialize(HIWORD(wparam));
+            controls_.SetDpi(HIWORD(wparam));
             const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
+            MONITORINFO monitor{};
+            monitor.cbSize = sizeof(monitor);
+            GetMonitorInfoW(MonitorFromRect(suggested, MONITOR_DEFAULTTONEAREST), &monitor);
+            const int height = std::min(suggested->bottom - suggested->top,
+                                        monitor.rcWork.bottom - monitor.rcWork.top);
+            const int top = std::clamp(suggested->top, monitor.rcWork.top,
+                                       std::max(monitor.rcWork.top, monitor.rcWork.bottom - height));
             SetWindowPos(
                 window_,
                 nullptr,
                 suggested->left,
-                suggested->top,
+                top,
                 suggested->right - suggested->left,
-                suggested->bottom - suggested->top,
+                height,
                 SWP_NOACTIVATE | SWP_NOZORDER);
             return 0;
         }
@@ -830,9 +1057,12 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lparam);
             const SIZE preferred = renderer_.PreferredClientSize();
             info->ptMinTrackSize.x = preferred.cx;
-            info->ptMinTrackSize.y = preferred.cy;
+            info->ptMinTrackSize.y = std::min<LONG>(preferred.cy, GetSystemMetrics(SM_CYSCREEN));
             return 0;
         }
+        case WM_SIZE:
+            controls_.Layout();
+            return 0;
         case WM_POWERBROADCAST:
             if (wparam == PBT_APMRESUMEAUTOMATIC || wparam == PBT_APMRESUMESUSPEND) {
                 Tick(true);

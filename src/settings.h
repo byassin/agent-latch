@@ -15,6 +15,8 @@ enum class DetectionMode : DWORD {
 struct Settings {
     bool keep_display_on{false};
     bool notifications{true};
+    bool manual_keep_awake{false};
+    ULONGLONG manual_end_utc_milliseconds{0};
     DetectionMode codex_mode{DetectionMode::Tasks};
     DetectionMode claude_mode{DetectionMode::Tasks};
     DetectionMode cursor_mode{DetectionMode::Tasks};

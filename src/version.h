@@ -1,7 +1,7 @@
 #pragma once
 
 #ifndef AGENTLATCH_VERSION
-#define AGENTLATCH_VERSION "0.2.8"
+#define AGENTLATCH_VERSION "0.3.0"
 #endif
 
 #define AGENTLATCH_WIDEN_IMPL(value) L##value

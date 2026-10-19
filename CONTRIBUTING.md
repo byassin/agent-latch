@@ -16,7 +16,8 @@ The default x64 output is `build-x64\Release\AgentLatch.exe`. Before submitting 
 
 ```powershell
 .\scripts\build.ps1
-.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.2.8
+.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.3.0
+.\tests\manual-cli.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 ```
@@ -24,6 +25,10 @@ The default x64 output is `build-x64\Release\AgentLatch.exe`. Before submitting 
 Installer changes should also be compiled with `build-installer.ps1 -TestBuild` and exercised with `tests\installer.tests.ps1`. That test refuses to run against the production AppId.
 
 The native self-test includes Codex desktop-helper ownership (including intermediary hosts and paths outside the package), standalone CLI preservation, exact lifecycle counts, grace countdown/expiry, resumed work, and dashboard status labels. Keep these regressions covered when changing process detection or release timing.
+
+It also covers fixed restart deadlines, repeated missing scans, provider return, independent providers, Off/mode changes, idle Tasks-mode disarming, SessionEnd/process-removal ordering, manual duration limits, indefinite sessions, original-end-time restoration, and expiry. Native UI contracts create hidden real controls at 96/144/192 DPI, checking page visibility, explicit mode mapping, all-reason lists, control bounds, and tab fit without overflow arrows. `AgentLatch.exe --self-test --test-render-dir <absolute-directory>` adds PNG render fixtures in DPI-specific subdirectories. These use test state and must not be presented as live-provider evidence.
+
+For documentation, run `scripts/capture-dashboard.ps1 -AgentLatchPath <installed-exe> -OutputDirectory <directory>`. It asks the running app to export its current state as three full-resolution PNGs without any desktop control, focus change, visible tab switch, or desktop screenshot. Review labels/settings before publishing; keep live-state exports distinct from synthetic test fixtures. See [Interface guide](docs/INTERFACE.md).
 
 ## Pull requests
 

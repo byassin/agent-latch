@@ -78,9 +78,9 @@ std::wstring FormatDuration(ULONGLONG milliseconds) {
     const ULONGLONG seconds = total_seconds % 60;
     std::wostringstream stream;
     if (hours > 0) {
-        stream << hours << L"h ";
+        stream << hours << L"h";
         if (minutes > 0) {
-            stream << minutes << L"m";
+            stream << L" " << minutes << L"m";
         }
     } else if (minutes > 0) {
         stream << minutes << L"m";

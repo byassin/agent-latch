@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.8"
+  #define AppVersion "0.3.0"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.2.8.0"
+  #define VersionInfoVersion "0.3.0.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -81,9 +81,12 @@ Source: "{#RepoRoot}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\CONTRIBUTING.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\dashboard.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\agents.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\settings.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\ARCHITECTURE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\INTERFACE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AgentLatch"; Filename: "{app}\AgentLatch.exe"; Check: NotTestMode
