@@ -34,6 +34,7 @@ struct Latch {
     ULONGLONG renewed_at{0};
     ULONGLONG expires_at{0};
     unsigned int instance_count{1};
+    bool in_grace_period{false};
 };
 
 const wchar_t* ProviderName(Provider provider);

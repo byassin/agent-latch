@@ -18,7 +18,8 @@ public:
         const std::wstring& detail,
         ULONGLONG now,
         ULONGLONG ttl_milliseconds,
-        unsigned int instance_count = 1);
+        unsigned int instance_count = 1,
+        bool in_grace_period = false);
 
     bool Remove(const std::wstring& id);
     bool RemoveByKind(LatchKind kind);

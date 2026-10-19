@@ -109,7 +109,12 @@ void DrawSwitch(HDC dc, const RECT& rectangle, bool enabled) {
     DeleteObject(brush);
 }
 
+}  // namespace
+
 std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
+    if (latch.in_grace_period) {
+        return L"Releasing in " + FormatDuration(latch.expires_at > now ? latch.expires_at - now : 0);
+    }
     if (latch.kind == LatchKind::Detector) {
         if (latch.label.ends_with(L" open")) {
             return L"App open";
@@ -125,6 +130,23 @@ std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
     }
     return FormatCountdown(latch.expires_at, now);
 }
+
+const wchar_t* ProviderTrackingStatus(
+    Provider provider, DetectionMode mode, const std::vector<Latch>& latches) {
+    bool grace_only = false;
+    for (const Latch& latch : latches) {
+        if (latch.provider != provider) {
+            continue;
+        }
+        if (!latch.in_grace_period) {
+            return mode == DetectionMode::Open ? L"OPEN" : L"RUNNING";
+        }
+        grace_only = true;
+    }
+    return grace_only ? L"GRACE" : L"";
+}
+
+namespace {
 
 UiAction ProviderAction(Provider provider) {
     switch (provider) {
@@ -254,6 +276,10 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
 
     RECT hero{margin, Scale(70), content_right, Scale(143)};
     const bool protection_error = !state.system_request_accepted;
+    const bool grace_only = !state.latches.empty() &&
+                            std::all_of(state.latches.begin(), state.latches.end(), [](const Latch& latch) {
+                                return latch.in_grace_period;
+                            });
     const COLORREF hero_fill = protection_error ? RGB(49, 34, 15) : state.active ? RGB(15, 38, 33) : kSurface;
     const COLORREF hero_border = protection_error ? RGB(120, 78, 20) : state.active ? RGB(31, 91, 72) : kBorder;
     const COLORREF hero_accent = protection_error ? kWarning : state.active ? kActive : kIdle;
@@ -262,7 +288,8 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
     RECT hero_label{hero.left + Scale(37), hero.top + Scale(10), hero.right - Scale(112), hero.top + Scale(38)};
     const std::wstring headline = protection_error
                                       ? (state.active ? L"Windows may go to sleep" : L"Protection needs attention")
-                                      : (state.active ? L"Windows sleep protection confirmed" : L"Protection ready");
+                                      : grace_only ? L"Finishing protection"
+                                                   : (state.active ? L"Windows sleep protection confirmed" : L"Protection ready");
     DrawTextBlock(memory, headline, hero_label, heading_font_, protection_error || state.active ? hero_accent : kText);
 
     RECT hero_detail{hero.left + Scale(22), hero.top + Scale(39), hero.right - Scale(20), hero.bottom - Scale(7)};
@@ -276,8 +303,9 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         detail = state.active ? L"Keep-awake request failed · error " : L"Windows power request error ";
         detail += std::to_wstring(state.system_request_error) + L" · retrying";
     } else if (state.active) {
-        detail = std::to_wstring(active_instance_count) +
-                 (active_instance_count == 1 ? L" latch is active" : L" latches are active");
+        detail = grace_only ? L"Release grace · watching for more work"
+                            : std::to_wstring(active_instance_count) +
+                                  (active_instance_count == 1 ? L" latch is active" : L" latches are active");
         if (state.keep_display_on && !state.display_request_accepted) {
             detail += L" · screen request failed (error " +
                       std::to_wstring(state.display_request_error) + L")";
@@ -310,7 +338,7 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         protection_error ? kWarning : state.active ? kActive : kFaint,
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     RECT active_title{margin, Scale(160), content_right, Scale(183)};
-    DrawTextBlock(memory, L"Running now", active_title, body_semibold_font_, kText);
+    DrawTextBlock(memory, L"Keeping you awake", active_title, body_semibold_font_, kText);
 
     RECT latch_card{margin, Scale(185), content_right, Scale(265)};
     FillRoundedRectangle(memory, latch_card, Scale(12), kSurface, kBorder);
@@ -331,9 +359,9 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
                 FillRectangle(memory, divider, kBorder);
             }
             DrawStatusDot(memory, latch_card.left + Scale(22), top + Scale(20), Scale(4), ProviderColor(latch.provider));
-            RECT row_title{latch_card.left + Scale(36), top + Scale(5), latch_card.right - Scale(120), top + Scale(35)};
+            RECT row_title{latch_card.left + Scale(36), top + Scale(5), latch_card.right - Scale(155), top + Scale(35)};
             DrawTextBlock(memory, latch.label, row_title, body_semibold_font_, kText);
-            RECT row_detail{latch_card.right - Scale(126), top + Scale(5), latch_card.right - Scale(16), top + Scale(35)};
+            RECT row_detail{latch_card.right - Scale(150), top + Scale(5), latch_card.right - Scale(16), top + Scale(35)};
             DrawTextBlock(memory, LatchSecondaryText(latch, state.now), row_detail, small_font_, kMuted, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
         if (state.latches.size() > 2) {
@@ -360,9 +388,8 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         const Provider provider = providers[index];
         const DetectionMode mode = state.settings.ProviderMode(provider);
         const bool enabled = mode != DetectionMode::Off;
-        const bool running = std::any_of(state.latches.begin(), state.latches.end(), [provider](const Latch& latch) {
-            return latch.provider == provider;
-        });
+        const wchar_t* tracking_status = ProviderTrackingStatus(provider, mode, state.latches);
+        const bool running = tracking_status[0] != L'\0';
         const COLORREF accent = running ? ProviderColor(provider) : enabled ? kMuted : kFaint;
         const int top = provider_list.top + static_cast<int>(index) * Scale(34);
         RECT provider_row{provider_list.left, top, provider_list.right, top + Scale(34)};
@@ -375,7 +402,7 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         DrawTextBlock(memory, ProviderShortName(provider), provider_text, small_font_, enabled ? kText : kFaint);
         if (running) {
             RECT running_text{provider_row.right - Scale(136), provider_row.top, provider_row.right - Scale(70), provider_row.bottom};
-            DrawTextBlock(memory, L"RUNNING", running_text, tiny_semibold_font_, ProviderColor(provider), DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+            DrawTextBlock(memory, tracking_status, running_text, tiny_semibold_font_, ProviderColor(provider), DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         }
         RECT mode_pill{provider_row.right - Scale(62), provider_row.top + Scale(7), provider_row.right - Scale(12), provider_row.bottom - Scale(7)};
         FillRoundedRectangle(memory, mode_pill, Scale(10), enabled ? kSurfaceRaised : kBackground, kBorder);

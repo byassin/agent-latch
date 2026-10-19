@@ -19,6 +19,8 @@ struct DetectionResult {
     unsigned int activity_capable_instances{0};
     unsigned int active_task_instances{0};
     bool recently_active{false};
+    bool in_grace_period{false};
+    ULONGLONG grace_remaining_milliseconds{0};
     ULONGLONG last_activity{0};
     std::wstring open_detail;
     std::wstring activity_detail;
@@ -28,6 +30,7 @@ void ApplyOpenAIActivityToDetectionResult(
     DetectionResult* result,
     const OpenAIMergedActivity& activity,
     ULONGLONG now);
+void ApplyDetectionGrace(DetectionResult* result, ULONGLONG now, DWORD grace_seconds);
 
 struct ProcessClassification {
     Provider provider{Provider::External};

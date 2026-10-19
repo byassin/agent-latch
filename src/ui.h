@@ -70,5 +70,8 @@ private:
 };
 
 COLORREF ProviderColor(Provider provider);
+std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now);
+const wchar_t* ProviderTrackingStatus(
+    Provider provider, DetectionMode mode, const std::vector<Latch>& latches);
 
 }  // namespace agent_latch

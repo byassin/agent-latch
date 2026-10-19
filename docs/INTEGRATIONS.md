@@ -56,6 +56,8 @@ For the packaged unified OpenAI desktop app, AgentLatch recognizes an active Cha
 
 For Codex tasks, AgentLatch checks the local JSONL lifecycle stream every five seconds and treats `task_started` without a later `task_complete` as active work. Merely leaving the app open does not latch. Concurrent active task files become independent latch instances. An overlapping Codex composer signal is deduplicated, while a simultaneous regular ChatGPT response adds another active instance and appears as combined OpenAI work in the dashboard.
 
+Codex desktop app servers, execution servers, and sandbox helpers are presence-only even when their executable is installed under `%LOCALAPPDATA%\OpenAI\Codex\bin` rather than inside the Windows app package. Ownership is followed through intermediary processes so descendant helpers cannot renew task protection from background CPU or I/O. A separate standalone Codex CLI retains conservative process-activity detection.
+
 For Codex CLI, configured hook events include session start, prompt submission, tool use, subagent start/stop, and task stop. The event's `session_id` becomes the stable latch identity; subagent IDs receive their own latches.
 
 AgentLatch accepts Codex hook JSON on standard input:
@@ -132,6 +134,7 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 
 - Native detector state is refreshed every two seconds; Codex lifecycle files are rediscovered every five seconds.
 - Detector activity retains a 180-second safety grace by default while the provider remains open. Closing the provider or switching it **Off** releases the detector latch on the next reconciliation cycle.
+- During that grace, the dashboard shows **GRACE**, **release grace**, and **Releasing in…** instead of claiming that app processes are running tasks. One provider's grace contributes one protection reason. Fresh authoritative work restores its exact task count; a separate hook or **Open** latch may continue holding protection after that countdown ends.
 - Hook leases default to 30 minutes and renew whenever useful lifecycle activity arrives.
 - External leases default to 30 minutes and accept a TTL from 0 to 86,400 seconds.
 - A stop event releases its matching hook session or subagent immediately; an independent native detector signal or its safety grace can still keep that provider latched.
@@ -143,3 +146,5 @@ Supported source keys are `codex`, `claude`, `cursor`, `opencode`, `gemini`, `an
 First check the dashboard state. **READY** means no active source was detected. **PROTECTED** means work was detected and Windows accepted the system keep-awake request. **ERROR** means work was detected but the Windows request failed and is being retried.
 
 Use **Open diagnostic history** from the tray menu to correlate application starts, latch counts and provider names, power-request results, and watchdog restarts. The log intentionally omits session IDs, workspace paths, prompts, responses, and conversation content. For an independent operating-system view, run `powercfg /requests` from an elevated Windows Terminal while the dashboard says **PROTECTED**.
+
+Latch-state records include `grace=Codex` (or another provider name) when a detector is in release grace. **GRACE** is a temporary keep-awake reason; **OPEN** means you selected presence protection. Neither label means a task is currently running.
