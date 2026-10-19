@@ -4,6 +4,19 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-18
+
+### Fixed
+
+- Codex desktop app servers, execution servers, and sandbox helpers no longer masquerade as standalone CLI tasks or renew the detector grace through background CPU/I/O activity, including helpers installed outside the Windows package.
+- Process ownership now follows intermediary hosts before collapsing desktop helpers, while preserving activity detection for independent CLI trees.
+- Detector grace counts as one protection reason instead of displaying the number of open processes as running tasks.
+
+### Changed
+
+- The dashboard now labels detector grace explicitly, shows a release countdown and **GRACE** status, and identifies presence protection as **OPEN**. The protection list is titled **Keeping you awake** to cover tasks, app presence, and grace accurately.
+- Diagnostic latch-state records identify providers in release grace. Native regression tests cover helper ownership, standalone CLI preservation, exact counts, grace expiry, and resumed work.
+
 ## [0.2.6] - 2026-08-22
 
 ### Fixed

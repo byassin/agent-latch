@@ -12,7 +12,8 @@ bool LatchRegistry::Upsert(
     const std::wstring& detail,
     ULONGLONG now,
     ULONGLONG ttl_milliseconds,
-    unsigned int instance_count) {
+    unsigned int instance_count,
+    bool in_grace_period) {
     if (id.empty()) {
         return false;
     }
@@ -29,6 +30,7 @@ bool LatchRegistry::Upsert(
         latch.renewed_at = now;
         latch.expires_at = ttl_milliseconds == 0 ? 0 : now + ttl_milliseconds;
         latch.instance_count = std::max(1u, instance_count);
+        latch.in_grace_period = in_grace_period;
         latches_.emplace(id, std::move(latch));
         return true;
     }
@@ -37,7 +39,8 @@ bool LatchRegistry::Upsert(
     const ULONGLONG expires_at = ttl_milliseconds == 0 ? 0 : now + ttl_milliseconds;
     const bool changed = latch.provider != provider || latch.kind != kind || latch.label != label ||
                          latch.detail != detail || latch.expires_at != expires_at ||
-                         latch.instance_count != std::max(1u, instance_count);
+                         latch.instance_count != std::max(1u, instance_count) ||
+                         latch.in_grace_period != in_grace_period;
     latch.provider = provider;
     latch.kind = kind;
     latch.label = label;
@@ -45,6 +48,7 @@ bool LatchRegistry::Upsert(
     latch.renewed_at = now;
     latch.expires_at = expires_at;
     latch.instance_count = std::max(1u, instance_count);
+    latch.in_grace_period = in_grace_period;
     return changed;
 }
 

@@ -122,12 +122,20 @@ std::wstring LatchDiagnosticDetail(const std::vector<Latch>& latches) {
             detail << ProviderShortName(providers[index]);
         }
     }
+    for (const Latch& latch : latches) {
+        if (latch.in_grace_period) {
+            detail << L" grace=" << ProviderShortName(latch.provider);
+        }
+    }
     return detail.str();
 }
 
 }  // namespace
 
 std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode) {
+    if (mode == DetectionMode::Tasks && result.in_grace_period) {
+        return std::wstring(ProviderShortName(result.provider)) + L" · release grace";
+    }
     if (mode == DetectionMode::Tasks && result.provider == Provider::Codex) {
         if (result.activity_detail.find(L"ChatGPT response") != std::wstring::npos &&
             result.activity_detail.find(L"Codex task") != std::wstring::npos) {
@@ -142,6 +150,11 @@ std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mod
     }
     return std::wstring(ProviderName(result.provider)) +
            (mode == DetectionMode::Tasks ? L" task" : L" open");
+}
+
+unsigned int DetectorLatchInstanceCount(const DetectionResult& result, DetectionMode mode) {
+    return mode == DetectionMode::Open ? result.running_instances
+                                      : std::max(1u, result.active_task_instances);
 }
 
 AgentLatchApp::AgentLatchApp(HINSTANCE instance) : instance_(instance) {}
@@ -299,9 +312,7 @@ void AgentLatchApp::UpdateDetectorLatches() {
                                       : mode == DetectionMode::Open && result.running_instances > 0;
         if (should_latch) {
             const bool task_mode = mode == DetectionMode::Tasks;
-            const unsigned int instance_count = task_mode && result.active_task_instances > 0
-                                                    ? result.active_task_instances
-                                                    : result.running_instances;
+            const unsigned int instance_count = DetectorLatchInstanceCount(result, mode);
             latches_.Upsert(
                 id,
                 result.provider,
@@ -309,8 +320,9 @@ void AgentLatchApp::UpdateDetectorLatches() {
                 DetectorLatchLabel(result, mode),
                 task_mode ? result.activity_detail : result.open_detail,
                 now,
-                0,
-                instance_count);
+                task_mode && result.in_grace_period ? result.grace_remaining_milliseconds : 0,
+                instance_count,
+                task_mode && result.in_grace_period);
         } else {
             latches_.Remove(id);
         }

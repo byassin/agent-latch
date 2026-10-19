@@ -87,6 +87,8 @@ Other commands:
 
 ## Protection health and diagnostics
 
+After detected work ends, the dashboard shows **GRACE**, a **release grace** row, and a **Releasing in…** countdown during the default three-minute detector grace. This counts as one protection reason, never as multiple running tasks. Fresh work resumes normal task counts; otherwise the detector latch releases when the countdown expires. Desktop Codex app servers and sandbox helpers do not renew this timer merely by doing background CPU or I/O work. **Open** mode instead shows **OPEN** and intentionally protects while the app remains running.
+
 The dashboard has three explicit system states:
 
 - **READY** — no work is latched and normal Windows sleep policy applies.
@@ -115,7 +117,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.6
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.2.7
 ```
 
 ## Design principles

@@ -16,12 +16,14 @@ The default x64 output is `build-x64\Release\AgentLatch.exe`. Before submitting 
 
 ```powershell
 .\scripts\build.ps1
-.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.2.6
+.\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion 0.2.7
 .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 ```
 
 Installer changes should also be compiled with `build-installer.ps1 -TestBuild` and exercised with `tests\installer.tests.ps1`. That test refuses to run against the production AppId.
+
+The native self-test includes Codex desktop-helper ownership (including intermediary hosts and paths outside the package), standalone CLI preservation, exact lifecycle counts, grace countdown/expiry, resumed work, and dashboard status labels. Keep these regressions covered when changing process detection or release timing.
 
 ## Pull requests
 

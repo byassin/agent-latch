@@ -59,6 +59,55 @@ bool ContainsCaseInsensitive(const std::wstring& value, const std::wstring& need
     return Lowercase(value).find(Lowercase(needle)) != std::wstring::npos;
 }
 
+bool IsBundledCodexPath(std::wstring path) {
+    std::replace(path.begin(), path.end(), L'/', L'\\');
+    return ContainsCaseInsensitive(path, L"\\WindowsApps\\OpenAI.Codex_") ||
+           ContainsCaseInsensitive(path, L"\\AppData\\Local\\OpenAI\\Codex\\bin\\");
+}
+
+void NormalizeProcessTree(std::vector<ProcessEntry>* processes) {
+    std::unordered_map<DWORD, std::size_t> index_by_pid;
+    for (std::size_t index = 0; index < processes->size(); ++index) {
+        index_by_pid.emplace((*processes)[index].pid, index);
+    }
+    // Resolve ownership through intermediary hosts before collapsing helpers.
+    for (std::size_t pass = 0; pass < processes->size(); ++pass) {
+        bool changed = false;
+        for (ProcessEntry& process : *processes) {
+            if (process.provider != Provider::External) {
+                continue;
+            }
+            const auto parent = index_by_pid.find(process.parent_pid);
+            if (parent != index_by_pid.end() && (*processes)[parent->second].provider != Provider::External) {
+                const ProcessEntry& owner = (*processes)[parent->second];
+                process.provider = owner.provider;
+                process.activity_capable = owner.activity_capable;
+                changed = true;
+            }
+        }
+        if (!changed) {
+            break;
+        }
+    }
+    for (ProcessEntry& process : *processes) {
+        DWORD ancestor_pid = process.parent_pid;
+        for (std::size_t depth = 0; depth < processes->size(); ++depth) {
+            const auto ancestor = index_by_pid.find(ancestor_pid);
+            if (ancestor == index_by_pid.end() || ancestor_pid == process.pid) {
+                break;
+            }
+            const ProcessEntry& owner = (*processes)[ancestor->second];
+            if (owner.provider == process.provider && !owner.activity_capable &&
+                (!process.activity_capable || process.provider == Provider::Codex)) {
+                process.is_provider_root = false;
+                process.activity_capable = false;
+                break;
+            }
+            ancestor_pid = owner.parent_pid;
+        }
+    }
+}
+
 std::wstring ReadProcessPath(DWORD pid) {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (process == nullptr) {
@@ -268,6 +317,22 @@ void ApplyOpenAIActivityToDetectionResult(
     result->activity_detail = activity.detail;
 }
 
+void ApplyDetectionGrace(DetectionResult* result, ULONGLONG now, DWORD grace_seconds) {
+    if (result == nullptr) {
+        return;
+    }
+    if (result->active_task_instances > 0) {
+        result->last_activity = now;
+    }
+    const ULONGLONG grace = static_cast<ULONGLONG>(grace_seconds) * 1000;
+    result->recently_active = result->running_instances > 0 && result->last_activity != 0 &&
+                              result->last_activity <= now && now - result->last_activity < grace;
+    result->in_grace_period = result->recently_active && result->active_task_instances == 0;
+    result->grace_remaining_milliseconds = result->in_grace_period
+                                              ? grace - (now - result->last_activity)
+                                              : 0;
+}
+
 CodexSessionLifecycle LatestCodexSessionLifecycle(std::string_view json_lines) {
     const std::size_t started = json_lines.rfind(kCodexTaskStarted);
     const std::size_t completed = json_lines.rfind(kCodexTaskComplete);
@@ -288,8 +353,7 @@ ProcessClassification ClassifyAgentProcess(
     if (_wcsicmp(executable.c_str(), L"codex.exe") == 0) {
         result.provider = Provider::Codex;
         result.is_provider_root = true;
-        result.activity_capable = !executable_path.empty() &&
-                                  !ContainsCaseInsensitive(executable_path, L"\\WindowsApps\\OpenAI.Codex_");
+        result.activity_capable = !executable_path.empty() && !IsBundledCodexPath(executable_path);
         return result;
     }
     if (_wcsicmp(executable.c_str(), L"chatgpt.exe") == 0 &&
@@ -403,23 +467,7 @@ unsigned int AgentDetector::ScanCodexDesktopSessions(ULONGLONG now, ULONGLONG de
 
 std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seconds) {
     std::vector<ProcessEntry> processes = SnapshotProcesses();
-    std::unordered_map<DWORD, std::size_t> index_by_pid;
-    index_by_pid.reserve(processes.size());
-    for (std::size_t index = 0; index < processes.size(); ++index) {
-        index_by_pid.emplace(processes[index].pid, index);
-    }
-
-    // Electron applications create several processes with the same executable.
-    // Count only the top-most provider process as an open application instance.
-    for (ProcessEntry& process : processes) {
-        if (!process.is_provider_root || process.activity_capable) {
-            continue;
-        }
-        const auto parent = index_by_pid.find(process.parent_pid);
-        if (parent != index_by_pid.end() && processes[parent->second].provider == process.provider) {
-            process.is_provider_root = false;
-        }
-    }
+    NormalizeProcessTree(&processes);
 
     std::vector<DWORD> packaged_openai_process_ids;
     for (const ProcessEntry& process : processes) {
@@ -434,7 +482,8 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
     ULONGLONG codex_desktop_creation_time = 0;
     for (const ProcessEntry& process : processes) {
         if (process.provider != Provider::Codex || !process.is_provider_root ||
-            process.activity_capable || process.creation_time == 0) {
+            process.activity_capable || process.creation_time == 0 ||
+            !ContainsCaseInsensitive(process.executable_path, L"\\WindowsApps\\OpenAI.Codex_")) {
             continue;
         }
         codex_desktop_creation_time = codex_desktop_creation_time == 0
@@ -451,25 +500,6 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         kOpenAIActivityMaximumAgeMilliseconds);
     if (openai_activity.active_instances > 0) {
         last_activity_[ProviderIndex(Provider::Codex)] = now;
-    }
-
-    // Propagate a provider from each known agent root to its child process tree.
-    for (std::size_t pass = 0; pass < processes.size(); ++pass) {
-        bool changed = false;
-        for (ProcessEntry& process : processes) {
-            if (process.provider != Provider::External) {
-                continue;
-            }
-            const auto parent = index_by_pid.find(process.parent_pid);
-            if (parent != index_by_pid.end() && processes[parent->second].provider != Provider::External) {
-                process.provider = processes[parent->second].provider;
-                process.activity_capable = processes[parent->second].activity_capable;
-                changed = true;
-            }
-        }
-        if (!changed) {
-            break;
-        }
     }
 
     std::unordered_map<int, unsigned int> root_counts;
@@ -531,7 +561,6 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
 
     std::vector<DetectionResult> results;
     results.reserve(providers.size());
-    const ULONGLONG grace_milliseconds = static_cast<ULONGLONG>(grace_seconds) * 1000;
     for (Provider provider : providers) {
         DetectionResult result;
         result.provider = provider;
@@ -540,12 +569,6 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         result.active_task_instances = 0;
         const auto activity = last_activity_.find(ProviderIndex(provider));
         result.last_activity = activity == last_activity_.end() ? 0 : activity->second;
-        result.recently_active = result.running_instances > 0 && result.last_activity != 0 &&
-                                 now - result.last_activity <= grace_milliseconds;
-        if (result.active_task_instances > 0) {
-            result.recently_active = true;
-            result.last_activity = now;
-        }
 
         std::wostringstream open_detail;
         if (result.running_instances == 1) {
@@ -558,6 +581,7 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         if (provider == Provider::Codex) {
             ApplyOpenAIActivityToDetectionResult(&result, openai_activity, now);
         }
+        ApplyDetectionGrace(&result, now, grace_seconds);
         if (result.activity_detail.empty()) {
             std::wostringstream activity_detail;
             if (result.activity_capable_instances > 0) {
@@ -575,6 +599,43 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
 }
 
 bool RunAgentDetectorSelfTests() {
+    const auto make_process = [](DWORD pid, DWORD parent, const wchar_t* name, const wchar_t* path) {
+        ProcessEntry process;
+        process.pid = pid;
+        process.parent_pid = parent;
+        process.executable = name;
+        process.executable_path = path;
+        const ProcessClassification classification = ClassifyAgentProcess(name, path);
+        process.provider = classification.provider;
+        process.is_provider_root = classification.is_provider_root;
+        process.activity_capable = classification.activity_capable;
+        return process;
+    };
+    std::vector<ProcessEntry> process_tree{
+        make_process(40, 30, L"codex.exe", L"C:\\Users\\test\\AppData\\Local\\OpenAI\\Codex\\bin\\hash\\codex.exe"),
+        make_process(50, 30, L"codex.exe", L"C:\\FutureRuntime\\codex.exe"),
+        make_process(30, 20, L"node.exe", L"C:\\Runtime\\node.exe"),
+        make_process(20, 10, L"codex.exe", L"C:\\Users\\test\\AppData\\Local\\OpenAI\\Codex\\bin\\hash\\codex.exe"),
+        make_process(10, 0, L"ChatGPT.exe", L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_test\\app\\ChatGPT.exe"),
+        make_process(90, 0, L"codex.exe", L"C:\\Tools\\codex.exe"),
+        make_process(91, 90, L"node.exe", L"C:\\Tools\\node.exe"),
+    };
+    NormalizeProcessTree(&process_tree);
+    unsigned int roots = 0;
+    for (const ProcessEntry& process : process_tree) {
+        const bool standalone = process.pid == 90 || process.pid == 91;
+        const bool root = process.pid == 10 || process.pid == 90;
+        if (process.provider != Provider::Codex || process.activity_capable != standalone ||
+            process.is_provider_root != root) {
+            return false;
+        }
+        roots += process.is_provider_root ? 1u : 0u;
+    }
+    if (roots != 2 || ClassifyAgentProcess(
+            L"CODEX.EXE", L"c:/users/test/appdata/local/openai/codex/bin/hash/codex.exe").activity_capable ||
+        !ClassifyAgentProcess(L"codex.exe", L"C:\\Tools\\Codex\\bin\\codex.exe").activity_capable) {
+        return false;
+    }
     wchar_t temporary_directory[MAX_PATH]{};
     if (GetTempPathW(static_cast<DWORD>(std::size(temporary_directory)), temporary_directory) == 0) {
         return false;

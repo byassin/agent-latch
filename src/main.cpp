@@ -261,6 +261,79 @@ bool RunOpenAIUiActivityContractTests() {
     return true;
 }
 
+bool RunDetectorGraceContractTests() {
+    DetectionResult result;
+    result.provider = Provider::Codex;
+    result.running_instances = 7;
+    ApplyOpenAIActivityToDetectionResult(&result, OpenAIMergedActivity{3, L"3 Codex tasks are running"}, 1000);
+    ApplyDetectionGrace(&result, 1000, 180);
+    if (!result.recently_active || result.in_grace_period || result.grace_remaining_milliseconds != 0 ||
+        DetectorLatchInstanceCount(result, DetectionMode::Tasks) != 3) {
+        return false;
+    }
+    result.active_task_instances = 0;
+    ApplyDetectionGrace(&result, 26000, 180);
+    if (!result.recently_active || !result.in_grace_period || result.grace_remaining_milliseconds != 155000 ||
+        DetectorLatchInstanceCount(result, DetectionMode::Tasks) != 1 ||
+        DetectorLatchInstanceCount(result, DetectionMode::Open) != 7 ||
+        DetectorLatchLabel(result, DetectionMode::Tasks) != L"Codex · release grace") {
+        return false;
+    }
+    LatchRegistry registry;
+    registry.Upsert(L"detector:codex", Provider::Codex, LatchKind::Detector,
+                    DetectorLatchLabel(result, DetectionMode::Tasks), L"", 26000,
+                    result.grace_remaining_milliseconds, DetectorLatchInstanceCount(result, DetectionMode::Tasks), true);
+    const Latch* grace = registry.Find(L"detector:codex");
+    if (grace == nullptr || !grace->in_grace_period || grace->expires_at != 181000 ||
+        registry.ActiveInstanceCount() != 1 ||
+        LatchSecondaryText(*grace, 26000).find(L"Releasing in ") != 0 ||
+        std::wstring(ProviderTrackingStatus(Provider::Codex, DetectionMode::Tasks, registry.Snapshot())) != L"GRACE") {
+        return false;
+    }
+    ApplyDetectionGrace(&result, 56000, 180);
+    registry.Upsert(L"detector:codex", Provider::Codex, LatchKind::Detector,
+                    DetectorLatchLabel(result, DetectionMode::Tasks), L"", 56000,
+                    result.grace_remaining_milliseconds, 1, true);
+    if (registry.Find(L"detector:codex")->expires_at != 181000 ||
+        registry.Expire(180999) || !registry.Expire(181000) || registry.IsActive()) {
+        return false;
+    }
+    ApplyDetectionGrace(&result, 181000, 180);
+    if (result.recently_active || result.in_grace_period || result.grace_remaining_milliseconds != 0) {
+        return false;
+    }
+    ApplyOpenAIActivityToDetectionResult(&result, OpenAIMergedActivity{2, L"2 Codex tasks are running"}, 182000);
+    ApplyDetectionGrace(&result, 182000, 180);
+    registry.Upsert(L"detector:codex", Provider::Codex, LatchKind::Detector,
+                    DetectorLatchLabel(result, DetectionMode::Tasks), L"", 182000, 0, 2, result.in_grace_period);
+    if (!result.recently_active || result.in_grace_period || registry.ActiveInstanceCount() != 2 ||
+        LatchSecondaryText(*registry.Find(L"detector:codex"), 182000) != L"2 tasks running" ||
+        std::wstring(ProviderTrackingStatus(Provider::Codex, DetectionMode::Tasks, registry.Snapshot())) != L"RUNNING" ||
+        std::wstring(ProviderTrackingStatus(Provider::Codex, DetectionMode::Open, registry.Snapshot())) != L"OPEN") {
+        return false;
+    }
+    result.active_task_instances = 0;
+    ApplyDetectionGrace(&result, 183000, 180);
+    registry.Upsert(L"detector:codex", Provider::Codex, LatchKind::Detector,
+                    DetectorLatchLabel(result, DetectionMode::Tasks), L"", 183000,
+                    result.grace_remaining_milliseconds, 1, true);
+    ApplyOpenAIActivityToDetectionResult(&result, OpenAIMergedActivity{1, L"1 Codex task is running"}, 184000);
+    ApplyDetectionGrace(&result, 184000, 180);
+    registry.Upsert(L"detector:codex", Provider::Codex, LatchKind::Detector,
+                    DetectorLatchLabel(result, DetectionMode::Tasks), L"", 184000, 0, 1, result.in_grace_period);
+    if (registry.Find(L"detector:codex")->in_grace_period || registry.Expire(362001)) {
+        return false;
+    }
+    result.active_task_instances = 0;
+    result.running_instances = 0;
+    ApplyDetectionGrace(&result, 184001, 180);
+    if (result.recently_active || result.in_grace_period) {
+        return false;
+    }
+    registry.Remove(L"detector:codex");
+    return std::wstring(ProviderTrackingStatus(Provider::Codex, DetectionMode::Tasks, registry.Snapshot())).empty();
+}
+
 int RunSelfTests() {
     const ULONGLONG now = GetTickCount64();
     LatchRegistry registry;
@@ -425,6 +498,9 @@ int RunSelfTests() {
 
     if (!RunOpenAIUiActivityContractTests()) {
         return 57;
+    }
+    if (!RunDetectorGraceContractTests()) {
+        return 60;
     }
 
     PowerRequest request;
