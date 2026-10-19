@@ -4,6 +4,13 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-18
+
+### Fixed
+
+- Lifecycle-hook rows now show **Active** or an active count instead of a misleading "minutes remaining" safety-lease countdown. AgentLatch does not predict task completion time.
+- The extra-reasons count now lives in the protection-section header instead of overlapping the second row's status. Long task labels truncate within their own column.
+
 ## [0.2.7] - 2026-10-18
 
 ### Fixed

@@ -115,6 +115,9 @@ std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
     if (latch.in_grace_period) {
         return L"Releasing in " + FormatDuration(latch.expires_at > now ? latch.expires_at - now : 0);
     }
+    if (latch.kind == LatchKind::Hook) {
+        return latch.instance_count > 1 ? std::to_wstring(latch.instance_count) + L" active" : L"Active";
+    }
     if (latch.kind == LatchKind::Detector) {
         if (latch.label.ends_with(L" open")) {
             return L"App open";
@@ -339,6 +342,11 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     RECT active_title{margin, Scale(160), content_right, Scale(183)};
     DrawTextBlock(memory, L"Keeping you awake", active_title, body_semibold_font_, kText);
+    if (state.latches.size() > 2) {
+        RECT more{content_right - Scale(90), active_title.top, content_right, active_title.bottom};
+        DrawTextBlock(memory, L"+" + std::to_wstring(state.latches.size() - 2) + L" more", more,
+                      small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    }
 
     RECT latch_card{margin, Scale(185), content_right, Scale(265)};
     FillRoundedRectangle(memory, latch_card, Scale(12), kSurface, kBorder);
@@ -360,13 +368,10 @@ void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardSta
             }
             DrawStatusDot(memory, latch_card.left + Scale(22), top + Scale(20), Scale(4), ProviderColor(latch.provider));
             RECT row_title{latch_card.left + Scale(36), top + Scale(5), latch_card.right - Scale(155), top + Scale(35)};
-            DrawTextBlock(memory, latch.label, row_title, body_semibold_font_, kText);
+            DrawTextBlock(memory, latch.label, row_title, body_semibold_font_, kText,
+                          DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
             RECT row_detail{latch_card.right - Scale(150), top + Scale(5), latch_card.right - Scale(16), top + Scale(35)};
             DrawTextBlock(memory, LatchSecondaryText(latch, state.now), row_detail, small_font_, kMuted, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
-        }
-        if (state.latches.size() > 2) {
-            RECT more{latch_card.right - Scale(90), latch_card.bottom - Scale(21), latch_card.right - Scale(16), latch_card.bottom - Scale(4)};
-            DrawTextBlock(memory, L"+" + std::to_wstring(state.latches.size() - 2) + L" more", more, small_font_, kFaint, DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         }
     }
 
