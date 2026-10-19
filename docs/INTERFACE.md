@@ -50,4 +50,8 @@ The documentation images are off-screen exports of the running app's current sta
 
 Export creates only a hidden `WS_EX_NOACTIVATE` capture window and never changes the visible page, input focus, mouse, keyboard, or system power plan. Output stays local until a user explicitly publishes it. Review any custom external-lease labels before sharing.
 
-Automated native tests cover page visibility, mode mapping, all-reason lists, tab fit without overflow arrows, control bounds, and off-screen renders at 96/144/192 DPI. These checks establish UI structure/rendering, not overnight or provider-specific lifecycle qualification.
+Automated native tests cover page visibility, mode mapping, all-reason lists, tab fit without overflow arrows, control bounds, and off-screen renders at 96/120/144/168/192 DPI (100–200% scaling). Fixtures include timed, indefinite, idle, error, and long-list states.
+
+Custom-painted tabs, collapsed provider dropdowns, and rounded buttons paint their full rectangular background before their rounded foreground. Independent control tests start with white and magenta pixels and verify all outer corners, including pressed/focused button states and both print paths. This catches artifacts that a pre-painted whole-dashboard export can conceal. Reason columns also adjust to the actual client width when vertical scrolling is needed, without adding a horizontal scrollbar.
+
+These checks establish UI structure/rendering, not overnight or provider-specific lifecycle qualification. They do not activate a visible window or send mouse/keyboard input.

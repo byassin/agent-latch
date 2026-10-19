@@ -455,10 +455,17 @@ void DashboardControls::Layout() {
     if (tabs_ != nullptr) {
         TabCtrl_SetItemSize(tabs_, (client.right - Scale(56)) / 3, Scale(30));
     }
-    if (reasons_ != nullptr) {
-        ListView_SetColumnWidth(reasons_, 0, Scale(338) + extra);
-        ListView_SetColumnWidth(reasons_, 1, Scale(190));
-    }
+    LayoutReasonColumns();
+}
+void DashboardControls::LayoutReasonColumns() {
+    if (reasons_ == nullptr) { return; }
+    RECT client{};
+    GetClientRect(reasons_, &client);
+    const int status_width = Scale(190);
+    // The client width already excludes a visible vertical scrollbar. Leave a
+    // pixel of slack so rounding cannot create an unwanted horizontal bar.
+    ListView_SetColumnWidth(reasons_, 0, std::max(Scale(80), static_cast<int>(client.right) - status_width - 1));
+    ListView_SetColumnWidth(reasons_, 1, status_width);
 }
 void DashboardControls::ApplyVisibility() {
     for (const auto& control : controls_) {
@@ -539,6 +546,7 @@ void DashboardControls::Update(const DashboardState& state) {
         }
         reason_text_ = std::move(rows);
     }
+    LayoutReasonColumns();
     ApplyVisibility();
 }
 bool DashboardControls::HandleNotify(const NMHDR* notification) {
@@ -587,6 +595,7 @@ bool DashboardControls::DrawItem(const DRAWITEMSTRUCT* item) const {
     if (item->CtlType != ODT_BUTTON) { return false; }
     const bool primary = item->CtlID == kManualStart;
     const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+    FillRectangle(item->hDC, item->rcItem, IsSurface(static_cast<int>(item->CtlID)) ? kSurface : kBackground);
     FillRoundedRectangle(item->hDC, item->rcItem, Scale(7),
         primary ? (pressed ? RGB(24, 64, 53) : RGB(21, 54, 44)) : pressed ? kBorder : kSurfaceRaised,
         primary ? RGB(43, 127, 98) : kBorder);
@@ -629,6 +638,7 @@ HWND DashboardControls::ActionWindow(UiAction action) const {
 }
 void DashboardControls::PaintCombo(HWND window, HDC dc) const {
     RECT bounds{}; GetClientRect(window, &bounds);
+    FillRectangle(dc, bounds, kSurface);
     FillRoundedRectangle(dc, bounds, Scale(6), kSurfaceRaised, GetFocus() == window ? kBlue : kBorder);
     const int selected = static_cast<int>(SendMessageW(window, CB_GETCURSEL, 0, 0));
     if (selected >= 0 && selected < 3) {
@@ -658,6 +668,7 @@ LRESULT CALLBACK DashboardControls::ComboProcedure(HWND window, UINT message, WP
 }
 void DashboardControls::PaintTabs(HDC dc) const {
     RECT bounds{}; GetClientRect(tabs_, &bounds);
+    FillRectangle(dc, bounds, kBackground);
     FillRoundedRectangle(dc, bounds, Scale(8), kSurface, kBorder);
     for (int index = 0; index < 3; ++index) {
         RECT item{}; TabCtrl_GetItemRect(tabs_, index, &item);
@@ -716,9 +727,53 @@ bool DashboardControls::ValidateLayout() const {
     return true;
 }
 
+namespace {
+// Seed each independent child surface, rather than relying on a pre-painted
+// parent. A full dashboard export alone can hide unpainted rounded corners.
+bool ControlPaintCoversBackground(const DashboardControls& controls, HWND window,
+                                 COLORREF backdrop, bool button) {
+    RECT bounds{};
+    GetClientRect(window, &bounds);
+    HDC dc = CreateCompatibleDC(nullptr);
+    if (dc == nullptr) { return false; }
+    HBITMAP bitmap = CreateBitmap(bounds.right, bounds.bottom, 1, 32, nullptr);
+    if (bitmap == nullptr) { DeleteDC(dc); return false; }
+    HGDIOBJ previous = SelectObject(dc, bitmap);
+    bool valid = true;
+    for (COLORREF seed : {RGB(255, 255, 255), RGB(255, 0, 255)}) {
+        for (UINT flags : {0u, static_cast<UINT>(ODS_SELECTED), static_cast<UINT>(ODS_FOCUS),
+                           static_cast<UINT>(ODS_SELECTED | ODS_FOCUS)}) {
+            FillRectangle(dc, bounds, seed);
+            if (button) {
+                DRAWITEMSTRUCT item{};
+                item.CtlType = ODT_BUTTON;
+                item.CtlID = static_cast<UINT>(GetDlgCtrlID(window));
+                item.itemAction = ODA_DRAWENTIRE;
+                item.itemState = flags;
+                item.hwndItem = window;
+                item.hDC = dc;
+                item.rcItem = bounds;
+                valid = controls.DrawItem(&item) && valid;
+            } else {
+                SendMessageW(window, flags == 0 ? WM_PRINT : WM_PRINTCLIENT,
+                    reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_ERASEBKGND);
+            }
+            for (POINT corner : {POINT{0, 0}, POINT{bounds.right - 1, 0},
+                                 POINT{0, bounds.bottom - 1}, POINT{bounds.right - 1, bounds.bottom - 1}}) {
+                valid = GetPixel(dc, corner.x, corner.y) == backdrop && valid;
+            }
+        }
+    }
+    SelectObject(dc, previous);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    return valid;
+}
+}  // namespace
+
 bool RunDashboardContractTests(const std::wstring& output_directory) {
     // Real child controls, without showing a desktop window or touching settings.
-    for (UINT dpi : {96u, 144u, 192u}) {
+    for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
         DashboardRenderer renderer; renderer.Initialize(dpi);
         const SIZE size = renderer.PreferredClientSize();
         HWND parent = CreateWindowExW(0, L"STATIC", L"AgentLatch UI contract", WS_POPUP,
@@ -740,6 +795,14 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 state.latches.push_back(latch);
             }
             controls.Update(state);
+            valid = ControlPaintCoversBackground(controls, controls.TabWindow(), kBackground, false) && valid;
+            for (int id : {kMore, kManualStart, kManualStop, kDiagnostics, kRepair}) {
+                valid = ControlPaintCoversBackground(controls, GetDlgItem(parent, id),
+                    IsSurface(id) ? kSurface : kBackground, true) && valid;
+            }
+            for (int id = kModeFirst; id < kModeFirst + 5; ++id) {
+                valid = ControlPaintCoversBackground(controls, GetDlgItem(parent, id), kSurface, false) && valid;
+            }
             for (DashboardPage page : {DashboardPage::Overview, DashboardPage::Agents, DashboardPage::Settings}) {
                 controls.SelectPage(page);
                 valid = controls.ValidateLayout() && valid;
@@ -760,6 +823,7 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 }
             }
             valid = ListView_GetItemCount(GetDlgItem(parent, kReasons)) == 8 && valid;
+            valid = (GetWindowLongPtrW(GetDlgItem(parent, kReasons), GWL_STYLE) & WS_HSCROLL) == 0 && valid;
             state.latches.clear(); state.manual_active = false; state.active = false;
             controls.Update(state); controls.SelectPage(DashboardPage::Overview);
             valid = controls.ValidateLayout() && ListView_GetItemCount(GetDlgItem(parent, kReasons)) == 1 && valid;
@@ -769,6 +833,26 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 manual.label = L"Manual keep-awake"; manual.expires_at = state.manual_deadline;
                 state.latches.push_back(manual);
                 valid = ExportDashboardScreenshots(state, JoinPath(output_directory, std::to_wstring(dpi)), dpi) && valid;
+                const std::wstring scenarios = JoinPath(output_directory, std::to_wstring(dpi));
+                state.manual_deadline = 0;
+                state.latches.front().kind = LatchKind::Manual;
+                valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"indefinite"), dpi) && valid;
+                state.system_request_accepted = false;
+                state.system_request_error = ERROR_ACCESS_DENIED;
+                valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"error"), dpi) && valid;
+                state.system_request_accepted = true;
+                state.latches.clear(); state.manual_active = false; state.active = false;
+                valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"idle"), dpi) && valid;
+                state.active = true;
+                for (int index = 0; index < 8; ++index) {
+                    Latch reason;
+                    reason.provider = Provider::ClaudeCode;
+                    reason.kind = LatchKind::Hook;
+                    reason.label = L"Long agent task label that must stay inside the reason column " + std::to_wstring(index);
+                    reason.instance_count = 12;
+                    state.latches.push_back(reason);
+                }
+                valid = ExportDashboardScreenshots(state, JoinPath(scenarios, L"overflow"), dpi) && valid;
             }
             DestroyWindow(parent);
         }

@@ -4,6 +4,20 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-19
+
+### Fixed
+
+- Rounded tabs now paint their entire dark background, eliminating white corner artifacts on a real Windows window.
+- Applied the same full-surface painting fix to provider dropdowns and rounded buttons, including pressed/focused button states.
+- Protection-list columns now fit the actual client width after a vertical scrollbar appears, avoiding an unnecessary horizontal scrollbar.
+
+### Validation and documentation
+
+- Added independent child-control paint regressions seeded with white and magenta backgrounds. The regression fails on the previous drawing code, even when whole-dashboard exports look correct.
+- Expanded hidden native layout/painting tests to 100%, 125%, 150%, 175%, and 200% scaling, with timed, indefinite, idle, error, and long-list render fixtures.
+- Refreshed all three documentation images from live application state, without desktop capture or input/focus changes. No agent-detection or keep-awake policy changes.
+
 ## [0.3.0] - 2026-10-19
 
 ### Added
