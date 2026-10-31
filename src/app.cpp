@@ -382,13 +382,6 @@ void AgentLatchApp::SaveManualSession() {
                     L"It may not be restored correctly after restarting AgentLatch.",
                     L"AgentLatch", MB_OK | MB_ICONWARNING);
     }
-    Settings persisted;
-    const bool loaded = persisted.Load();
-    diagnostics_.Write(L"manual_storage_check", L"loaded=" + std::to_wstring(loaded) +
-        L" expected_active=" + std::to_wstring(settings_.manual_keep_awake) +
-        L" actual_active=" + std::to_wstring(persisted.manual_keep_awake) +
-        L" expected_claude=" + std::to_wstring(static_cast<DWORD>(settings_.claude_mode)) +
-        L" actual_claude=" + std::to_wstring(static_cast<DWORD>(persisted.claude_mode)));
 }
 
 void AgentLatchApp::SyncManualLatch() {
