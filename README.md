@@ -39,7 +39,7 @@ The 620 × 560 logical-pixel window uses native Windows controls with consistent
 - **Task-first by default:** the unified OpenAI app's response state, Codex lifecycle records, and provider hooks track actual work; conservative CLI activity detection is the fallback.
 - **Open when you want it:** presence mode deliberately latches while the selected app or CLI is merely running.
 - **Restart-safe:** a protected agent disappearing gets a fixed ten-minute restart grace, covering brief app update/restart gaps without latching forever.
-- **Manual when you need it:** keep awake until stopped, choose a quick duration, or enter 1–168 hours. Manual protection is independent of agents and survives AgentLatch restarts.
+- **Manual when you need it:** keep awake until Windows restarts, choose a quick duration, or enter 1–168 hours. Manual protection survives app-only restarts but resets after a Windows restart.
 - **Transparent:** the dashboard shows exactly what is keeping the machine awake and why.
 - **Self-healing:** a zero-CPU watchdog restarts AgentLatch after an abnormal exit, with a bounded restart-loop guard.
 - **Verifiable:** the dashboard distinguishes a detected latch from a Windows-accepted sleep-protection request, and a local diagnostic history explains every transition.
@@ -61,13 +61,15 @@ In **Tasks** mode, opening an Electron app by itself never latches the computer.
 
 ## Manual keep-awake and overnight use
 
-On **Overview**, under **Manual keep-awake**, select **Keep awake…**, then **Until stopped**, a quick duration (1, 2, 4, 8, 12, or 24 hours), or **Custom hours…** (1–168 whole hours). The same controls are available from the tray menu. The countdown is the actual manual session time remaining—not an estimate of agent completion.
+On **Overview**, under **Manual override**, select **Keep awake…**, then **Until Windows restarts**, a quick duration (1, 2, 4, 8, 12, or 24 hours), or **Custom hours…** (1–168 whole hours). The same controls are available from the tray menu. The countdown is the actual manual session time remaining—not an estimate of agent completion.
 
 Manual protection stays active even if every agent closes or updates. **Change…** replaces the existing manual session; **Stop** cancels only manual protection, leaving agent monitoring and any other protection reasons running. Keeping the screen on remains an independent switch on **Settings**; it is not needed to keep the PC awake.
 
-The manual session is saved locally. Restarting AgentLatch restores an indefinite session or the remaining time until a timed session's original end; it never starts a fresh full-length timer. **Until stopped** also resumes at Windows sign-in if AgentLatch starts automatically. Choosing **Exit** releases protection while AgentLatch is not running, but does not erase the saved session. Use **Stop** to cancel it permanently.
+**Restarting Windows clears manual override**, including any remaining timed session. You must enable it again after restarting. Automatic agent monitoring still starts normally if launch at sign-in is enabled.
 
-For overnight work, choose a manual duration covering the night or **Until stopped**. Automatic restart grace covers only ten minutes, and an agent update can interrupt the agent's own work even when Windows stays awake. No mode prevents forced restarts, power loss, explicit Sleep/shutdown, or critical system actions.
+Restarting/updating only AgentLatch restores the manual session within the same Windows registry-hive lifetime; a timed session retains its original end instead of starting a fresh full-length timer. Choosing **Exit** releases protection while AgentLatch is not running, but does not erase that same-session choice. **Stop** cancels it. Sleep/hibernate alone does not unload this session state; signing out can also clear it when Windows unloads the user registry hive. Upgrading from the old permanent format intentionally starts manual override Off once, because the old value cannot establish which boot enabled it.
+
+For overnight work, choose a manual duration covering the night or **Until Windows restarts**. Automatic restart grace covers only ten minutes, and an agent update can interrupt the agent's own work even when Windows stays awake. No mode prevents forced restarts, power loss, explicit Sleep/shutdown, or critical system actions.
 
 ## Install
 
@@ -160,7 +162,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.1
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.2
 ```
 
 ## Design principles

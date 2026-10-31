@@ -98,7 +98,7 @@ std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
         return L"Releasing in " + FormatDuration(latch.expires_at > now ? latch.expires_at - now : 0);
     }
     if (latch.kind == LatchKind::Manual) {
-        return L"Until stopped";
+        return L"Until Windows restarts";
     }
     if (latch.kind == LatchKind::Hook) {
         return latch.instance_count > 1 ? std::to_wstring(latch.instance_count) + L" active" : L"Active";
@@ -399,7 +399,7 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
         L"Keep the screen on while protected", L"Start AgentLatch when I sign in", L"Show status notifications"};
     const std::array<const wchar_t*, 3> hints = {
         L"Off lets the display turn off. Your PC still stays awake.",
-        L"Monitor agents and restore saved manual sessions at sign-in.",
+        L"Start monitoring automatically when you sign in.",
         L"Optional wake alerts. Protection failures always notify you."};
     for (int index = 0; index < 3; ++index) {
         const int top = 246 + index * 68;
@@ -527,7 +527,7 @@ void DashboardControls::Update(const DashboardState& state) {
     } else { detail = L"Normal sleep settings apply. Enabled agents are being monitored."; }
     TextValue(kStatusDetail, detail);
     TextValue(kManualStatus, !state_.manual_active ? L"Off · keep awake independently of agents" :
-        (state_.manual_deadline == 0 ? L"Until stopped" : FormatCountdown(state_.manual_deadline, state_.now)) +
+        (state_.manual_deadline == 0 ? L"Until Windows restarts" : FormatCountdown(state_.manual_deadline, state_.now)) +
             std::wstring(L" · independent of agents"));
     TextValue(kManualStart, state_.manual_active ? L"Change…" : L"Keep awake…");
     TextValue(kEmptyHint, state_.manual_active ? L"Manual override is keeping your PC awake." : L"Agent activity will appear here when detected.");

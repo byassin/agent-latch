@@ -4,6 +4,14 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-31
+
+- Manual override now resets after Windows restarts, for both timed and unlimited sessions. App-only restarts/updates retain the original session within the same Windows registry-hive lifetime.
+- Manual state uses a volatile registry subkey, not permanent settings; legacy persistent overrides are deliberately not restored on upgrade and must be enabled once again. Other preferences and automatic agent tracking are unchanged.
+- Renamed the unlimited menu/status choice to **Until Windows restarts** and corrected the sign-in preference hint.
+- Added isolated registry tests for volatility, reloads, timed/unlimited reset, malformed values, legacy-state rejection and preference preservation; no actual reboot is performed by the tests.
+- Updated user/developer/privacy documentation and all three live-state tab images for 0.4.2.
+
 ## [0.4.1] - 2026-10-19
 
 First public release of the activity-first 0.4 redesign below. The 0.4.0 candidate was stopped before public binary publication after final source-visibility review.

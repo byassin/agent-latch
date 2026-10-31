@@ -349,6 +349,7 @@ bool RunDetectorGraceContractTests() {
 }
 
 int RunSelfTests(const std::wstring& snapshot_directory) {
+    if (!RunSettingsSelfTests()) { return 66; }
     if (!RunWakeSessionSelfTests()) {
         return 64;
     }
