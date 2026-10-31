@@ -410,7 +410,7 @@ void AgentLatchApp::StartManualSession(unsigned int hours) {
 void AgentLatchApp::ShowManualMenu() {
     HMENU menu = CreatePopupMenu();
     if (menu == nullptr) { return; }
-    AppendMenuW(menu, MF_STRING, 1, L"Until stopped");
+    AppendMenuW(menu, MF_STRING, 1, L"Until Windows restarts");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     constexpr std::array<unsigned int, 6> hours = {1, 2, 4, 8, 12, 24};
     for (unsigned int duration : hours) {

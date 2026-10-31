@@ -6,7 +6,7 @@ AgentLatch 0.4 is activity-first: compact navigation and protection status, five
 
 The protection summary stays visible on every tab, without a redundant status badge. **Ready when your agents are** means normal Windows idle-sleep policy applies; **Sleep protection is on** means Windows accepted AgentLatch's system power request; **Sleep protection needs attention** means a failed request is being retried. READY/PROTECTED/ERROR remain the tray/diagnostic terms. Accepted protection is not a guarantee against explicit Sleep, a forced restart, critical system policy, or power loss.
 
-Use **Keep awake…** in the bottom **Manual override** strip to choose Until stopped, a quick hour preset, or 1–168 custom hours. An active session shows its real remaining time or Until stopped. **Change…** replaces only that session. **Stop** leaves agent tracking and other reasons alone. Saved sessions restore across app restarts; timers retain their original end.
+Use **Keep awake…** in the bottom **Manual override** strip to choose **Until Windows restarts**, a quick hour preset, or 1–168 custom hours. An active session shows its real remaining time or Until Windows restarts. **Change…** replaces only that session. **Stop** leaves agent tracking and other reasons alone. Both timed and unlimited manual overrides reset after restarting Windows; enable them again when needed. App-only restarts/updates preserve the same-session choice and original timer end. Signing out can also clear it when Windows unloads the user registry hive; ordinary sleep/hibernate does not. Legacy permanent manual settings are not restored on upgrade.
 
 Cancel, Escape, or the custom-hours dialog's close button leaves the existing session unchanged.
 
@@ -33,7 +33,7 @@ These map to `Tasks`, `Open`, and `Off` internally. A protected provider disappe
 ## Settings
 
 - **Keep the screen on while protected:** affects the display request, not whether the PC itself stays awake.
-- **Start AgentLatch when I sign in:** starts monitoring and restores a saved manual session after sign-in.
+- **Start AgentLatch when I sign in:** starts agent monitoring automatically. Manual override remains Off after a Windows restart until you enable it again.
 - **Show status notifications:** controls routine wake-state alerts. Protection failures still alert.
 
 Each preference is a whole-label native checkbox styled as a dark switch, with an explicit On/Off label. Native checked state, keyboard activation and accessibility are retained. **Diagnostic history** opens the local bounded log. **Repair integrations…** is an intentional maintenance action, not a required first-run setup step. Neither action runs just by visiting Settings.
@@ -42,7 +42,7 @@ Each preference is a whole-label native checkbox styled as a dark switch, with a
 
 ## Keyboard and tray behavior
 
-Use Tab/Shift+Tab between native controls, Ctrl+Tab/Ctrl+Shift+Tab between pages, arrow keys on tabs/dropdowns/lists, Space for checkboxes, and Enter/Space for focused buttons. Focus indicators are visible. Closing the main window keeps monitoring in the tray; More… → Exit ends the process and its current power request, while preserving the saved manual choice for a later launch.
+Use Tab/Shift+Tab between native controls, Ctrl+Tab/Ctrl+Shift+Tab between pages, arrow keys on tabs/dropdowns/lists, Space for checkboxes, and Enter/Space for focused buttons. Focus indicators are visible. Closing the main window keeps monitoring in the tray; More… → Exit ends the process and its current power request, while preserving the manual choice only for a later launch within the same Windows session.
 
 The preferred client size is 620 × 560 logical pixels. Native controls and typography scale with Windows DPI. There are no main-window or activity-list scrollbars; the list uses bounded pages instead. Keyboard focus indicators, disabled pager states, and button hover/press feedback remain visible.
 

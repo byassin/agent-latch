@@ -143,7 +143,7 @@ On the **Agents** tab, explicit **Tasks only**, **While open**, and **Off** drop
 - A stop event releases its matching hook session or subagent immediately. Releasing the final provider hook adds five seconds of settling grace so a SessionEnd arriving just before updater-driven process removal cannot briefly drop protection. An independent detector, restart grace, or manual session may continue holding protection.
 - A missing stop event cannot keep the computer awake forever: the TTL eventually releases it.
 - Disabling a provider in the dashboard removes that provider's automatic and hook latches immediately.
-- Manual keep-awake is independent of provider integration and Off settings. Select Until stopped or 1–168 hours from the dashboard or tray; Stop cancels only the manual session. Its explicit saved choice survives app restarts, while automatic leases do not.
+- Manual keep-awake is independent of provider integration and Off settings. Select **Until Windows restarts** or 1–168 hours from the dashboard or tray; Stop cancels only the manual session. Both timed/unlimited overrides reset after a Windows restart. App-only restarts/updates preserve the same-session choice, while automatic leases do not. The CLI's `--indefinite` option still means no clock deadline, not survival across a Windows restart.
 
 ## Diagnosing a missed latch or sleep
 

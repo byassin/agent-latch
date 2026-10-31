@@ -8,6 +8,8 @@ namespace agent_latch {
 namespace {
 
 constexpr wchar_t kSettingsKey[] = L"Software\\AgentLatch";
+constexpr wchar_t kManualSessionKey[] = L"ManualSession";
+constexpr wchar_t kManualSessionValue[] = L"UntilUtc";
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kRunValue[] = L"AgentLatch";
 
@@ -55,6 +57,8 @@ bool WriteDword(HKEY key, const wchar_t* name, DWORD value) {
 }  // namespace
 
 bool Settings::Load() {
+    manual_keep_awake = false;
+    manual_end_utc_milliseconds = 0;
     HKEY key = nullptr;
     const LSTATUS result = RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_QUERY_VALUE, &key);
     if (result == ERROR_FILE_NOT_FOUND) {
@@ -69,11 +73,17 @@ bool Settings::Load() {
     ULONGLONG manual_value = 0;
     DWORD end_type = 0;
     DWORD end_size = sizeof(manual_value);
-    if (RegQueryValueExW(key, L"ManualKeepAwakeUntilUtc", nullptr, &end_type,
+    // Never restore the legacy permanent value: its boot cannot be established.
+    // A volatile child survives app restarts, but not a Windows restart/hive unload.
+    HKEY manual_key = nullptr;
+    const LSTATUS manual_result = RegOpenKeyExW(key, kManualSessionKey, 0, KEY_QUERY_VALUE, &manual_key);
+    if (manual_result == ERROR_SUCCESS &&
+        (RegQueryValueExW(manual_key, kManualSessionValue, nullptr, &end_type,
                         reinterpret_cast<BYTE*>(&manual_value), &end_size) != ERROR_SUCCESS ||
-        end_type != REG_QWORD || end_size != sizeof(manual_value)) {
+        end_type != REG_QWORD || end_size != sizeof(manual_value))) {
         manual_value = 0;
     }
+    if (manual_key != nullptr) { RegCloseKey(manual_key); }
     manual_keep_awake = manual_value != 0;
     manual_end_utc_milliseconds = manual_value > 1 ? manual_value : 0;
     codex_mode = ReadDetectionMode(key, L"ModeCodex", L"DetectCodex", codex_mode);
@@ -87,7 +97,7 @@ bool Settings::Load() {
     claude_integration_expected = ReadDword(key, L"IntegrationExpectedClaude", 0) != 0;
     claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0) != 0;
     RegCloseKey(key);
-    return true;
+    return manual_result == ERROR_SUCCESS || manual_result == ERROR_FILE_NOT_FOUND;
 }
 
 bool Settings::Save() const {
@@ -99,7 +109,7 @@ bool Settings::Save() const {
             0,
             nullptr,
             REG_OPTION_NON_VOLATILE,
-            KEY_SET_VALUE,
+            KEY_SET_VALUE | KEY_CREATE_SUB_KEY,
             nullptr,
             &key,
             &disposition) != ERROR_SUCCESS) {
@@ -109,12 +119,21 @@ bool Settings::Save() const {
     bool result = true;
     result = WriteDword(key, L"KeepDisplayOn", keep_display_on ? 1u : 0u) && result;
     result = WriteDword(key, L"Notifications", notifications ? 1u : 0u) && result;
-    // One registry value avoids a crash between separate enabled/deadline writes.
-    // 0 = off, 1 = indefinite, otherwise an absolute FILETIME-epoch millisecond end.
+    // Keep the old permanent slot disabled, including for older app versions.
+    const ULONGLONG disabled = 0;
+    result = RegSetValueExW(key, L"ManualKeepAwakeUntilUtc", 0, REG_QWORD,
+        reinterpret_cast<const BYTE*>(&disabled), sizeof(disabled)) == ERROR_SUCCESS && result;
+    // One value avoids separate enabled/deadline writes. The volatile key, not a
+    // wall-clock/uptime heuristic or a shutdown callback, supplies restart reset.
     const ULONGLONG manual_value = !manual_keep_awake ? 0 :
         manual_end_utc_milliseconds == 0 ? 1 : manual_end_utc_milliseconds;
-    result = RegSetValueExW(key, L"ManualKeepAwakeUntilUtc", 0, REG_QWORD,
-        reinterpret_cast<const BYTE*>(&manual_value), sizeof(manual_value)) == ERROR_SUCCESS && result;
+    HKEY manual_key = nullptr;
+    if (RegCreateKeyExW(key, kManualSessionKey, 0, nullptr, REG_OPTION_VOLATILE,
+                        KEY_SET_VALUE, nullptr, &manual_key, nullptr) == ERROR_SUCCESS) {
+        result = RegSetValueExW(manual_key, kManualSessionValue, 0, REG_QWORD,
+            reinterpret_cast<const BYTE*>(&manual_value), sizeof(manual_value)) == ERROR_SUCCESS && result;
+        RegCloseKey(manual_key);
+    } else { result = false; }
     result = WriteDword(key, L"ModeCodex", static_cast<DWORD>(codex_mode)) && result;
     result = WriteDword(key, L"ModeClaude", static_cast<DWORD>(claude_mode)) && result;
     result = WriteDword(key, L"ModeCursor", static_cast<DWORD>(cursor_mode)) && result;
@@ -151,6 +170,84 @@ bool Settings::RefreshIntegrationStatus() {
     claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0) != 0;
     RegCloseKey(key);
     return true;
+}
+
+bool RunSettingsSelfTests() {
+    // Redirect HKCU only in this self-test process. Never touch live app settings.
+    const std::wstring test_path = L"Software\\AgentLatch.SettingsTest." +
+        std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64());
+    HKEY test_root = nullptr;
+    DWORD disposition = 0;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, test_path.c_str(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &test_root, &disposition) != ERROR_SUCCESS) { return false; }
+    if (disposition != REG_CREATED_NEW_KEY) { RegCloseKey(test_root); return false; }
+    if (RegOverridePredefKey(HKEY_CURRENT_USER, test_root) != ERROR_SUCCESS) {
+        RegCloseKey(test_root); RegDeleteTreeW(HKEY_CURRENT_USER, test_path.c_str()); return false;
+    }
+    const bool valid = []() {
+        HKEY key = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, nullptr, REG_OPTION_NON_VOLATILE,
+            KEY_ALL_ACCESS, nullptr, &key, nullptr) != ERROR_SUCCESS) { return false; }
+        const ULONGLONG legacy = 1;
+        bool success = RegSetValueExW(key, L"ManualKeepAwakeUntilUtc", 0, REG_QWORD,
+            reinterpret_cast<const BYTE*>(&legacy), sizeof(legacy)) == ERROR_SUCCESS;
+        RegCloseKey(key);
+        Settings original;
+        success = original.Load() && !original.manual_keep_awake && success;
+        original.manual_keep_awake = true;
+        original.claude_mode = DetectionMode::Off;
+        original.notifications = false;
+        success = original.Save() && success;
+        Settings app_restart;
+        success = app_restart.Load() && app_restart.manual_keep_awake &&
+            app_restart.manual_end_utc_milliseconds == 0 &&
+            app_restart.claude_mode == DetectionMode::Off && !app_restart.notifications && success;
+
+        HKEY manual_key = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\AgentLatch\\ManualSession", 0,
+            KEY_ALL_ACCESS, &manual_key) != ERROR_SUCCESS) { return false; }
+        HKEY probe = nullptr;
+        // Windows rejects a nonvolatile child under a genuinely volatile key.
+        const LSTATUS probe_result = RegCreateKeyExW(manual_key, L"NonVolatileProbe", 0, nullptr,
+            REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &probe, nullptr);
+        if (probe != nullptr) { RegCloseKey(probe); }
+        success = probe_result == ERROR_CHILD_MUST_BE_VOLATILE && success;
+        const DWORD malformed = 1;
+        success = RegSetValueExW(manual_key, kManualSessionValue, 0, REG_DWORD,
+            reinterpret_cast<const BYTE*>(&malformed), sizeof(malformed)) == ERROR_SUCCESS && success;
+        RegCloseKey(manual_key);
+        success = app_restart.Load() && !app_restart.manual_keep_awake && success;
+
+        original.manual_end_utc_milliseconds = 123456789;
+        success = original.Save() && app_restart.Load() && app_restart.manual_keep_awake &&
+            app_restart.manual_end_utc_milliseconds == original.manual_end_utc_milliseconds && success;
+        // Model Windows discarding only volatile session data, not preferences.
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_ALL_ACCESS, &key) != ERROR_SUCCESS) { return false; }
+        success = RegDeleteTreeW(key, kManualSessionKey) == ERROR_SUCCESS && success;
+        RegCloseKey(key);
+        success = app_restart.Load() && !app_restart.manual_keep_awake &&
+            app_restart.manual_end_utc_milliseconds == 0 &&
+            app_restart.claude_mode == DetectionMode::Off && !app_restart.notifications && success;
+        original.manual_end_utc_milliseconds = 0;
+        success = original.Save() && app_restart.Load() && app_restart.manual_keep_awake && success;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_ALL_ACCESS, &key) != ERROR_SUCCESS) { return false; }
+        ULONGLONG legacy_disabled = 99;
+        DWORD legacy_size = sizeof(legacy_disabled);
+        success = RegGetValueW(key, nullptr, L"ManualKeepAwakeUntilUtc", RRF_RT_REG_QWORD, nullptr,
+            &legacy_disabled, &legacy_size) == ERROR_SUCCESS && legacy_disabled == 0 && success;
+        success = RegDeleteTreeW(key, kManualSessionKey) == ERROR_SUCCESS && success;
+        success = RegSetValueExW(key, L"ManualKeepAwakeUntilUtc", 0, REG_QWORD,
+            reinterpret_cast<const BYTE*>(&legacy), sizeof(legacy)) == ERROR_SUCCESS && success;
+        RegCloseKey(key);
+        success = app_restart.Load() && !app_restart.manual_keep_awake && success;
+        original.manual_keep_awake = false;
+        success = original.Save() && app_restart.Load() && !app_restart.manual_keep_awake && success;
+        return success;
+    }();
+    const bool restored = RegOverridePredefKey(HKEY_CURRENT_USER, nullptr) == ERROR_SUCCESS;
+    RegCloseKey(test_root);
+    const bool cleaned = restored && RegDeleteTreeW(HKEY_CURRENT_USER, test_path.c_str()) == ERROR_SUCCESS;
+    return valid && restored && cleaned;
 }
 
 bool Settings::MarkHookSeen(Provider provider) {

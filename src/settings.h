@@ -45,5 +45,6 @@ const wchar_t* DetectionModeLabel(DetectionMode mode);
 
 bool IsStartWithWindowsEnabled();
 bool SetStartWithWindows(bool enabled, const std::wstring& executable_path);
+bool RunSettingsSelfTests();
 
 }  // namespace agent_latch
