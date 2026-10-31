@@ -37,6 +37,7 @@ jobs:
           }
           .\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion '${{ steps.version.outputs.version }}'
           .\tests\manual-cli.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
+          .\tests\manual-process.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\integration-installer.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\install.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
 

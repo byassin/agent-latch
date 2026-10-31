@@ -42,6 +42,7 @@ jobs:
           }
           .\tests\version.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe -ExpectedVersion '0.4.2'
           .\tests\manual-cli.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
+          .\tests\manual-process.tests.ps1 -AgentLatchPath .\build\Release\AgentLatch.exe
 
       - name: Test integration configuration merging
         if: matrix.arch == 'x64'
