@@ -4,6 +4,9 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+- Add full-background-app manual persistence checks on disposable Windows CI runners, covering timed/unlimited choices, app-only restart, and Stop.
+- Bound the screenshot helper to the command process rather than waiting indefinitely for an auto-started background daemon.
+
 ## [0.4.2] - 2026-10-31
 
 - Manual override now resets after Windows restarts, for both timed and unlimited sessions. App-only restarts/updates retain the original session within the same Windows registry-hive lifetime.

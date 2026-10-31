@@ -103,6 +103,8 @@ The former permanent `ManualKeepAwakeUntilUtc` value is never used for restorati
 
 `%LOCALAPPDATA%\AgentLatch\diagnostics.log` stores privacy-safe state transitions, including detector release causes, restart-grace start/recovery/expiry, and manual session start/stop/expiry or persistence failure. It rotates to `diagnostics.previous.log` at 512 KiB, so total diagnostic history is bounded to roughly 1 MiB. The normal uninstaller removes both files and saved settings.
 
+Full-process Windows CI also drives the real background app through its CLI, verifies timed/unlimited state across app-only restarts, and checks Stop. It is guarded to run only on a disposable GitHub-hosted runner with no pre-existing settings/process, and removes only its own settings afterward. Command/export helpers wait for their utility process, not its daemon descendants, using a bounded wait. This complements isolated storage tests without claiming a physical Windows reboot was performed.
+
 ## Native tabbed interface
 
 The preferred client size is 620 × 560 logical pixels. Overview is activity-first: five full two-line source rows, bounded previous/next navigation, and a compact manual-override strip. Agents owns five explicit mode selectors; Settings owns three switch-styled native checkboxes and maintenance buttons. Header, version, a single protection summary, and tray-behavior footer stay visible. Navigation never mutates provider policy. Hidden-page controls lose WS_VISIBLE and cannot receive normal tab navigation.

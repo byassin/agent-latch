@@ -32,6 +32,8 @@ It also covers fixed restart deadlines, repeated missing scans, provider return,
 
 Settings regressions use a temporary registry subtree and process-local HKCU redirection, not the installed app's configuration. They verify actual volatile-key creation, same-session app reload, modeled Windows session-storage removal for both timed/unlimited overrides, original-deadline preservation, legacy/malformed value rejection, explicit Stop, and retention of ordinary preferences. These tests never reboot Windows; they test the storage boundary and the documented volatile-key contract.
 
+`tests/manual-process.tests.ps1` additionally tests the full background app on a disposable GitHub-hosted runner. It refuses an existing app process or settings key, creates its own temporary preferences, and checks timed/unlimited CLI choices, process restart restoration and Stop before cleanup. It never activates a window. Control utilities may auto-start a background daemon, so wait on the command's own process with a timeout; PowerShell `Start-Process -Wait` can otherwise wait for the daemon's whole descendant tree. The plain native `--self-test` process does not launch such a daemon.
+
 For documentation, run `scripts/capture-dashboard.ps1 -AgentLatchPath <installed-exe> -OutputDirectory <directory>`. It asks the running app to export its current state as three full-resolution PNGs without any desktop control, focus change, visible tab switch, or desktop screenshot. Review labels/settings before publishing; keep live-state exports distinct from synthetic test fixtures. See [Interface guide](docs/INTERFACE.md).
 
 ## Pull requests
