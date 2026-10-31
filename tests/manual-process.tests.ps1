@@ -10,7 +10,12 @@ if (Test-Path -LiteralPath $settingsPath) { throw 'Refusing to change existing A
 if (Get-Process -Name AgentLatch -ErrorAction SilentlyContinue) { throw 'Refusing to test alongside an existing AgentLatch process.' }
 $created = $false
 function Invoke-Control([string]$arguments) {
-    $command = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+    # -Wait waits for the entire descendant tree, including a daemon started by
+    # a cold CLI invocation. Wait only for the command process itself instead.
+    $command = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    $null = $command.Handle
+    if (-not $command.WaitForExit(30000)) { throw "Command timed out: $arguments" }
+    $command.Refresh()
     if ($command.ExitCode -ne 0) { throw "App command failed: $arguments ($($command.ExitCode))" }
 }
 function Read-Manual {
@@ -43,6 +48,8 @@ try {
     }
     Write-Host 'Full-app manual persistence tests passed (timed, unlimited, app restart, Stop).'
 } finally {
+    $log = Join-Path $env:LOCALAPPDATA 'AgentLatch\diagnostics.log'
+    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 20 | Write-Host }
     if (Get-Process -Name AgentLatch -ErrorAction SilentlyContinue) { Stop-App }
     if ($created) { Remove-Item -LiteralPath $settingsPath -Recurse -Force }
 }
