@@ -16,7 +16,10 @@ if ((Get-Item -LiteralPath $AgentLatchPath).VersionInfo.FileVersionRaw -lt [vers
 [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 # Product CLI only: no desktop pixels, activation, visible navigation or input.
 $arguments = '--export-ui-screenshots "' + $OutputDirectory + '"'
-$process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+$process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+$null = $process.Handle
+if (-not $process.WaitForExit(30000)) { throw 'AgentLatch capture command timed out.' }
+$process.Refresh()
 if ($process.ExitCode -ne 0) {
     throw "AgentLatch capture failed with exit code $($process.ExitCode). Update the running app if its IPC is older."
 }
