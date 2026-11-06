@@ -780,6 +780,7 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
             OpenDiagnostics();
             break;
         case UiAction::None:
+        case UiAction::ApplyManual: // Validated and handled by WM_COMMAND before dispatch.
             return;
     }
     Tick(true);
@@ -1070,6 +1071,10 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             return 1;
         case WM_COMMAND: {
             if (LOWORD(wparam) == IDCANCEL) { ShowWindow(window_, SW_HIDE); return 0; }
+            unsigned int manual_hours = 0;
+            if (controls_.ReadManualCommand(wparam, &manual_hours)) {
+                StartManualSession(manual_hours); return 0;
+            }
             Appearance appearance{};
             if (controls_.ReadAppearanceChange(wparam, &appearance)) {
                 const auto previous = settings_.appearance;
@@ -1088,9 +1093,11 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             } else { ExecuteAction(controls_.ActionForCommand(wparam)); }
             return 0;
         }
-        case WM_NOTIFY:
-            if (controls_.HandleNotify(reinterpret_cast<const NMHDR*>(lparam))) { return 0; }
+        case WM_NOTIFY: {
+            LRESULT result = 0;
+            if (controls_.HandleNotify(reinterpret_cast<const NMHDR*>(lparam), &result)) { return result; }
             break;
+        }
         case WM_DRAWITEM:
             if (controls_.DrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam))) { return TRUE; }
             break;
@@ -1098,6 +1105,7 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             if (controls_.MeasureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lparam))) { return TRUE; }
             break;
         case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLOREDIT:
         case WM_CTLCOLORBTN:
         case WM_CTLCOLORLISTBOX:
             return reinterpret_cast<LRESULT>(controls_.ControlColor(

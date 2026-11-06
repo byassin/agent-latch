@@ -57,6 +57,7 @@ public:
     std::vector<DetectionResult> Scan(ULONGLONG now, DWORD grace_seconds);
 
 private:
+    friend bool RunAgentDetectorSelfTests();
     struct CodexSessionMetric {
         std::uintmax_t size{0};
         ULONGLONG write_time{0};
@@ -64,6 +65,8 @@ private:
     };
 
     unsigned int ScanCodexDesktopSessions(ULONGLONG now, ULONGLONG desktop_creation_time);
+    unsigned int ScanCodexSessionDirectory(ULONGLONG now, ULONGLONG desktop_creation_time,
+                                          const std::wstring& directory);
 
     bool initialized_{false};
     std::unordered_map<DWORD, ProcessMetric> previous_metrics_;

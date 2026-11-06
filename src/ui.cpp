@@ -19,6 +19,7 @@ constexpr int kTabs = 1000;
 constexpr int kStatusTitle = 40, kStatusDetail = 41, kFooter = 12;
 constexpr int kManualGroup = 69, kManualStatus = 71, kManualHint = 72;
 constexpr int kManualStart = 73, kManualStop = 74;
+constexpr int kManualDuration = 75, kManualHours = 76, kManualHoursLabel = 77;
 constexpr int kReasonsTitle = 90, kReasonsCount = 91, kReasons = 92;
 constexpr int kEmptyTitle = 95, kEmptyHint = 96;
 constexpr int kAgentsTitle = 100, kAgentsHint = 101;
@@ -212,10 +213,10 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     Text(L"Activity", kReasonsTitle, overview);
     HWND count = Text(L"", kReasonsCount, overview);
     SetWindowLongPtrW(count, GWL_STYLE, GetWindowLongPtrW(count, GWL_STYLE) | SS_RIGHT);
-    reasons_ = Add(WC_LISTVIEWW, L"Active protection reasons", WS_TABSTOP | WS_BORDER | LVS_REPORT |
-        LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS, kReasons, overview);
+    reasons_ = Add(WC_LISTVIEWW, L"Live agent activity, read only", LVS_REPORT |
+        LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS, kReasons, overview);
     if (reasons_ == nullptr) { return false; }
-    ListView_SetExtendedListViewStyle(reasons_, LVS_EX_DOUBLEBUFFER | LVS_EX_FULLROWSELECT | LVS_EX_LABELTIP);
+    ListView_SetExtendedListViewStyle(reasons_, LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
     for (const auto* label : {L"Agent or source", L"Signal", L"Status"}) {
         LVCOLUMNW column{}; column.mask = LVCF_TEXT | LVCF_WIDTH; column.cx = Scale(160);
         column.pszText = const_cast<wchar_t*>(label);
@@ -223,10 +224,26 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     }
     Text(L"No active agents", kEmptyTitle, overview);
     Text(L"New work appears here automatically.", kEmptyHint, overview);
-    Add(L"BUTTON", L"Manual override", BS_GROUPBOX, kManualGroup, overview);
+    // This frame and its fields are siblings. Clip the frame's real paint DC
+    // against fields above it so a late group repaint cannot erase them.
+    Add(L"BUTTON", L"Manual override", BS_GROUPBOX | WS_CLIPSIBLINGS, kManualGroup, overview);
     Text(L"Off", kManualStatus, overview);
     Text(L"Independent of agent tracking.", kManualHint, overview);
-    Add(L"BUTTON", L"Keep awake…", WS_TABSTOP | BS_PUSHBUTTON, kManualStart, overview);
+    HWND duration = Add(WC_COMBOBOXW, L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+        kManualDuration, overview);
+    for (const auto* label : {L"Until Windows restarts", L"1 hour", L"2 hours", L"4 hours",
+                             L"8 hours", L"12 hours", L"24 hours", L"Custom hours"}) {
+        SendMessageW(duration, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+    }
+    SendMessageW(duration, CB_SETCURSEL, 0, 0);
+    AccessibleName(duration, L"Manual override duration");
+    HWND hours = Add(L"EDIT", L"8", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_AUTOHSCROLL,
+        kManualHours, overview);
+    SendMessageW(hours, EM_SETLIMITTEXT, 3, 0);
+    AccessibleName(hours, L"Custom manual duration in hours, 1 to 168");
+    EnableWindow(hours, FALSE);
+    Text(L"hours", kManualHoursLabel, overview);
+    Add(L"BUTTON", L"Start", WS_TABSTOP | BS_PUSHBUTTON, kManualStart, overview);
     Add(L"BUTTON", L"Stop", WS_TABSTOP | BS_PUSHBUTTON, kManualStop, overview);
     const int agents = static_cast<int>(DashboardPage::Agents);
     Text(L"Agent tracking", kAgentsTitle, agents);
@@ -307,7 +324,7 @@ void DashboardControls::SetDpi(UINT dpi) {
                    (control.id >= kProviderDetail && control.id < kProviderDetail + 5) ||
                    (control.id >= kSettingHint && control.id < kSettingHint + 3)) { font = small_font_; }
         SendMessageW(control.window, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        if ((control.id >= kModeFirst && control.id < kModeFirst + 5) || control.id == kAppearance) {
+        if ((control.id >= kModeFirst && control.id < kModeFirst + 5) || control.id == kAppearance || control.id == kManualDuration) {
             SendMessageW(control.window, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), Scale(22));
             SendMessageW(control.window, CB_SETITEMHEIGHT, 0, Scale(22));
         }
@@ -383,16 +400,21 @@ void DashboardControls::Layout() {
     const int width = right - left;
     Place(kReasonsTitle, left, top, width - Scale(140), Scale(24));
     Place(kReasonsCount, right - Scale(140), top + Scale(2), Scale(140), Scale(22));
-    const int list_top = top + Scale(32), manual_top = bottom - Scale(92);
-    Place(kReasons, left, list_top, width, manual_top - Scale(14) - list_top);
-    const int empty_top = list_top + std::max(Scale(40), (manual_top - Scale(14) - list_top) / 2 - Scale(12));
+    const int list_top = top + Scale(32), manual_top = bottom - Scale(116);
+    const int list_bottom = manual_top - Scale(14);
+    Place(kReasons, left, list_top, width, list_bottom - list_top);
+    const int empty_top = list_top + std::max(Scale(26), (list_bottom - list_top) / 2 - Scale(15));
     Place(kEmptyTitle, left + Scale(24), empty_top, width - Scale(48), Scale(22));
     Place(kEmptyHint, left + Scale(24), empty_top + Scale(26), width - Scale(48), Scale(20));
-    Place(kManualGroup, left, manual_top, width, Scale(92));
-    Place(kManualStatus, left + Scale(16), manual_top + Scale(25), width - Scale(250), Scale(24));
-    Place(kManualHint, left + Scale(16), manual_top + Scale(55), width - Scale(250), Scale(22));
-    Place(kManualStart, right - Scale(214), manual_top + Scale(35), Scale(126), Scale(30));
-    Place(kManualStop, right - Scale(78), manual_top + Scale(35), Scale(62), Scale(30));
+    Place(kManualGroup, left, manual_top, width, Scale(116));
+    Place(kManualStatus, left + Scale(16), manual_top + Scale(23), width - Scale(32), Scale(23));
+    const bool custom = SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7;
+    Place(kManualDuration, left + Scale(16), manual_top + Scale(51), width - Scale(custom ? 300 : 198), Scale(240));
+    Place(kManualHours, right - Scale(276), manual_top + Scale(52), Scale(43), Scale(26));
+    Place(kManualHoursLabel, right - Scale(227), manual_top + Scale(55), Scale(38), Scale(22));
+    Place(kManualStart, right - Scale(174), manual_top + Scale(50), Scale(86), Scale(30));
+    Place(kManualStop, right - Scale(78), manual_top + Scale(50), Scale(62), Scale(30));
+    Place(kManualHint, left + Scale(16), manual_top + Scale(87), width - Scale(32), Scale(22));
     Place(kAgentsTitle, left, top, width, Scale(24));
     Place(kAgentsHint, left, top + Scale(27), width, Scale(22));
     for (int index = 0; index < 5; ++index) {
@@ -428,7 +450,9 @@ void DashboardControls::LayoutReasonColumns() {
 void DashboardControls::ApplyVisibility() {
     for (const auto& control : controls_) {
         const bool visible = (control.page < 0 || control.page == static_cast<int>(page_)) &&
-            ((control.id != kEmptyTitle && control.id != kEmptyHint) || activity_.empty());
+            ((control.id != kEmptyTitle && control.id != kEmptyHint) || activity_.empty()) &&
+            ((control.id != kManualHours && control.id != kManualHoursLabel) ||
+             SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7);
         ShowWindow(control.window, visible ? SW_SHOWNA : SW_HIDE);
     }
 }
@@ -439,7 +463,22 @@ void DashboardControls::SelectPage(DashboardPage page) {
 }
 void DashboardControls::Update(const DashboardState& state) {
     const auto old_appearance = state_.settings.appearance;
+    const bool manual_changed = state.manual_active &&
+        (!state_.manual_active || state.manual_deadline != state_.manual_deadline);
     state_ = state; state_.page = page_;
+    if (manual_changed) {
+        const ULONGLONG remaining = state_.manual_deadline > state_.now ? state_.manual_deadline - state_.now : 0;
+        const unsigned int hours = state_.manual_deadline == 0 ? 0 :
+            static_cast<unsigned int>(std::min<ULONGLONG>(168, std::max<ULONGLONG>(1, (remaining + 3599999) / 3600000)));
+        constexpr unsigned int presets[] = {0, 1, 2, 4, 8, 12, 24};
+        int selection = 7;
+        for (int index = 0; index < 7; ++index) { if (presets[index] == hours) { selection = index; } }
+        SendMessageW(Find(kManualDuration), CB_SETCURSEL, selection, 0);
+        if (hours != 0) { TextValue(kManualHours, std::to_wstring(hours)); }
+        EnableWindow(Find(kManualHours), selection == 7);
+        manual_validation_error_ = false;
+        Layout();
+    }
     const auto wanted = ResolveDashboardPalette(state_.settings.appearance, WindowsHighContrast());
     if (old_appearance != state_.settings.appearance || wanted.dark != palette_.dark) { RefreshTheme(); }
     if (!SendMessageW(Find(kAppearance), CB_GETDROPPEDSTATE, 0, 0)) {
@@ -459,7 +498,10 @@ void DashboardControls::Update(const DashboardState& state) {
     TextValue(kStatusDetail, detail);
     TextValue(kManualStatus, !state_.manual_active ? L"Off" : state_.manual_deadline == 0 ?
         L"Until Windows restarts" : FormatCountdown(state_.manual_deadline, state_.now));
-    TextValue(kManualStart, state_.manual_active ? L"Change duration…" : L"Keep awake…");
+    TextValue(kManualStart, state_.manual_active ? L"Apply" : L"Start");
+    if (!manual_validation_error_) {
+        TextValue(kManualHint, L"Independent of agents. Resets when Windows restarts.");
+    }
     EnableWindow(Find(kManualStop), state_.manual_active);
     TextValue(kEmptyHint, state_.manual_active ? L"Manual override is keeping your PC awake." : L"New work appears here automatically.");
     for (std::size_t index = 0; index < kProviders.size(); ++index) {
@@ -478,9 +520,6 @@ void DashboardControls::Update(const DashboardState& state) {
     UpdateReasonRows(); LayoutReasonColumns(); ApplyVisibility();
 }
 void DashboardControls::UpdateReasonRows() {
-    std::wstring selected;
-    const int selection = ListView_GetNextItem(reasons_, -1, LVNI_SELECTED);
-    if (selection >= 0 && static_cast<std::size_t>(selection) < row_ids_.size()) { selected = row_ids_[selection]; }
     std::vector<std::wstring> ids;
     for (const auto& latch : activity_) { ids.push_back(latch.id); }
     const bool changed = ids != row_ids_;
@@ -498,9 +537,6 @@ void DashboardControls::UpdateReasonRows() {
             SetCell(reasons_, row, 0, latch.label);
         }
         SetCell(reasons_, row, 1, Signal(latch)); SetCell(reasons_, row, 2, LatchSecondaryText(latch, state_.now));
-        if (changed && !selected.empty() && selected == latch.id) {
-            ListView_SetItemState(reasons_, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-        }
     }
     row_ids_ = std::move(ids);
     if (changed && !activity_.empty()) { ListView_EnsureVisible(reasons_, std::min(first, static_cast<int>(activity_.size()) - 1), FALSE); }
@@ -509,7 +545,16 @@ void DashboardControls::UpdateReasonRows() {
     TextValue(kReasonsCount, std::to_wstring(activity_.size()) + (activity_.size() == 1 ? L" source" : L" sources"));
 }
 
-bool DashboardControls::HandleNotify(const NMHDR* notification) {
+bool DashboardControls::HandleNotify(const NMHDR* notification, LRESULT* result) {
+    if (result != nullptr) { *result = 0; }
+    if (notification != nullptr && notification->hwndFrom == reasons_ &&
+        notification->code == LVN_ITEMCHANGING && result != nullptr) {
+        const auto* item = reinterpret_cast<const NMLISTVIEW*>(notification);
+        // Also reject accessibility/programmatic selection, not only clicks.
+        if ((item->uChanged & LVIF_STATE) && (item->uNewState & (LVIS_SELECTED | LVIS_FOCUSED))) {
+            *result = TRUE; return true;
+        }
+    }
     if (notification != nullptr && notification->hwndFrom == tabs_ && notification->code == TCN_SELCHANGE) {
         SelectPage(static_cast<DashboardPage>(TabCtrl_GetCurSel(tabs_))); return true;
     }
@@ -518,7 +563,7 @@ bool DashboardControls::HandleNotify(const NMHDR* notification) {
 UiAction DashboardControls::ActionForCommand(WPARAM command) const {
     if (HIWORD(command) != BN_CLICKED) { return UiAction::None; }
     switch (LOWORD(command)) {
-        case kManualStart: return UiAction::ManualMenu;
+        case kManualStart: return UiAction::ApplyManual;
         case kManualStop: return UiAction::StopManual;
         case kScreen: return UiAction::ToggleDisplay;
         case kStartup: return UiAction::ToggleStartup;
@@ -527,6 +572,38 @@ UiAction DashboardControls::ActionForCommand(WPARAM command) const {
         case kRepair: return UiAction::SetupHooks;
         default: return UiAction::None;
     }
+}
+bool DashboardControls::ReadManualCommand(WPARAM command, unsigned int* hours) {
+    const int id = LOWORD(command);
+    if (id == kManualDuration && HIWORD(command) == CBN_SELCHANGE) {
+        EnableWindow(Find(kManualHours), SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7);
+        manual_validation_error_ = false;
+        TextValue(kManualHint, L"Choose a duration, then Start or Apply. Agent tracking stays on.");
+        Layout();
+        ApplyVisibility();
+        return false;
+    }
+    if (id != kManualStart || HIWORD(command) != BN_CLICKED || hours == nullptr) { return false; }
+    constexpr unsigned int presets[] = {0, 1, 2, 4, 8, 12, 24};
+    const auto selection = SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0);
+    if (selection >= 0 && selection < 7) { *hours = presets[selection]; }
+    else if (selection == 7) {
+        wchar_t text[16]{}; GetWindowTextW(Find(kManualHours), text, 16);
+        unsigned int value = 0;
+        bool valid = text[0] != L'\0';
+        for (const wchar_t c : std::wstring(text)) {
+            if (c < L'0' || c > L'9') { valid = false; break; }
+            value = value * 10 + static_cast<unsigned int>(c - L'0');
+        }
+        if (!valid || value < 1 || value > 168) {
+            manual_validation_error_ = true;
+            TextValue(kManualHint, L"Enter a whole number from 1 to 168 hours, then Apply.");
+            return false;
+        }
+        *hours = value;
+    } else { return false; }
+    manual_validation_error_ = false;
+    return true;
 }
 bool DashboardControls::ReadProviderChange(WPARAM command, Provider* provider, DetectionMode* mode) const {
     const unsigned int id = LOWORD(command);
@@ -593,7 +670,9 @@ bool DashboardControls::ValidateLayout() const {
         if (bounds.left < 0 || bounds.top < 0 || bounds.right > client.right ||
             bounds.bottom > client.bottom || bounds.right <= bounds.left || bounds.bottom <= bounds.top) { return false; }
         const bool visible = (control.page < 0 || control.page == static_cast<int>(page_)) &&
-            ((control.id != kEmptyTitle && control.id != kEmptyHint) || activity_.empty());
+            ((control.id != kEmptyTitle && control.id != kEmptyHint) || activity_.empty()) &&
+            ((control.id != kManualHours && control.id != kManualHoursLabel) ||
+             SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7);
         if (((GetWindowLongPtrW(control.window, GWL_STYLE) & WS_VISIBLE) != 0) != visible) { return false; }
     }
     return true;

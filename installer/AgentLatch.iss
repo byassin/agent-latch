@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.4.2"
+  #define AppVersion "0.5.1"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.4.2.0"
+  #define VersionInfoVersion "0.5.1.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -88,6 +88,7 @@ Source: "{#RepoRoot}\docs\ARCHITECTURE.md"; DestDir: "{app}\docs"; Flags: ignore
 Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTERFACE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\UI-UPDATE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AgentLatch"; Filename: "{app}\AgentLatch.exe"; Check: NotTestMode

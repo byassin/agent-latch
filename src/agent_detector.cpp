@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <unordered_set>
 
 namespace agent_latch {
@@ -389,13 +390,18 @@ ProcessClassification ClassifyAgentProcess(
 }
 
 unsigned int AgentDetector::ScanCodexDesktopSessions(ULONGLONG now, ULONGLONG desktop_creation_time) {
+    return ScanCodexSessionDirectory(now, desktop_creation_time, CodexSessionsRoot().wstring());
+}
+
+unsigned int AgentDetector::ScanCodexSessionDirectory(
+    ULONGLONG now, ULONGLONG desktop_creation_time, const std::wstring& directory) {
     if (desktop_creation_time == 0) {
         codex_sessions_.clear();
         codex_candidate_paths_.clear();
         next_codex_discovery_at_ = 0;
         return 0;
     }
-    const std::filesystem::path root = CodexSessionsRoot();
+    const std::filesystem::path root(directory);
     if (root.empty()) {
         return 0;
     }
@@ -670,6 +676,34 @@ bool RunAgentDetectorSelfTests() {
             IsCodexSessionEligible(write_time, 0)) {
             std::filesystem::remove_all(root, error);
             return false;
+        }
+        // Drive the real cached scanner in an isolated directory. Independent
+        // background work must outlive its parent, then release on completion.
+        const auto worker = old_session.parent_path() / L"worker.jsonl";
+        const auto append = [](const std::filesystem::path& path, bool active) {
+            std::ofstream stream(path, std::ios::binary | std::ios::app);
+            stream << (active ? R"({"type":"event_msg","payload":{"type":"task_started"}})" :
+                                R"({"type":"event_msg","payload":{"type":"task_complete"}})") << '\n';
+        };
+        append(worker, true);
+        AgentDetector detector;
+        const auto scan = [&](ULONGLONG tick) {
+            return detector.ScanCodexSessionDirectory(tick, write_time, root.wstring());
+        };
+        if (scan(1000) != 2) { throw std::runtime_error("Codex parent/worker start"); }
+        append(old_session, false);
+        if (scan(1001) != 1) { throw std::runtime_error("Codex background retention"); }
+        // Active files remain watched even outside the 64-file discovery cap.
+        for (int index = 0; index < 70; ++index) {
+            append(old_session.parent_path() / (L"finished-" + std::to_wstring(index) + L".jsonl"), false);
+        }
+        if (scan(7000) != 1) { throw std::runtime_error("Codex cached background retention"); }
+        append(worker, false);
+        if (scan(7001) != 0 || scan(7002) != 0) { throw std::runtime_error("Codex final completion"); }
+        append(worker, true);
+        if (scan(13000) != 1) { throw std::runtime_error("Codex resumed worker"); }
+        if (detector.ScanCodexSessionDirectory(13001, 0, root.wstring()) != 0) {
+            throw std::runtime_error("Codex process generation reset");
         }
     } catch (...) {
         std::filesystem::remove_all(root, error);

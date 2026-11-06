@@ -6,12 +6,22 @@
 #include <cstdio>
 #include <uxtheme.h>
 #include <cmath>
+#include <thread>
 
 namespace agent_latch {
 namespace {
 
 constexpr int kReasons = 92, kManualStart = 73, kManualStop = 74;
 constexpr int kModeFirst = 300, kScreen = 400, kStartup = 401, kNotifications = 402;
+
+LRESULT CALLBACK FixtureProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* controls = reinterpret_cast<DashboardControls*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (controls != nullptr && message == WM_NOTIFY) {
+        LRESULT result = 0;
+        if (controls->HandleNotify(reinterpret_cast<const NMHDR*>(lparam), &result)) { return result; }
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
 
 bool TextFits(HWND window) {
     wchar_t label[512]{}; GetWindowTextW(window, label, static_cast<int>(std::size(label)));
@@ -58,9 +68,68 @@ bool DarkSurface(HWND window) {
     SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc); return valid;
 }
 
+bool RepaintClippingContract() {
+    const std::wstring name = L"AgentLatchRepaintTest-" + std::to_wstring(GetCurrentProcessId());
+    HDESK desktop = CreateDesktopW(name.c_str(), nullptr, nullptr, 0,
+        DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS, nullptr);
+    if (desktop == nullptr) { std::fprintf(stderr, "Cannot create isolated repaint desktop: %lu\n", GetLastError()); return false; }
+    bool passed = false;
+    std::thread worker([&]() {
+        if (!SetThreadDesktop(desktop)) { return; }
+        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"Repaint fixture",
+            WS_POPUP | WS_CLIPCHILDREN, 0, 0, 680, 620, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (parent == nullptr) { return; }
+        {
+            DashboardControls controls;
+            passed = controls.Initialize(parent, 96);
+            // This desktop is never switched to. Exercise real WM_PAINT/DC
+            // clipping without showing anything on the user's input desktop.
+            ShowWindow(parent, SW_SHOWNOACTIVATE);
+            for (Appearance appearance : {Appearance::Dark, Appearance::Light}) {
+                DashboardState state; state.settings.appearance = appearance;
+                controls.Update(state);
+                for (int repeat = 0; repeat < 3; ++repeat) {
+                    SendMessageW(GetDlgItem(parent, 75), CB_SETCURSEL, repeat == 1 ? 7 : 0, 0);
+                    unsigned int hours = 0;
+                    controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+                    controls.SelectPage(DashboardPage::Settings);
+                    controls.SelectPage(DashboardPage::Overview);
+                    RedrawWindow(parent, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                    HWND group = GetDlgItem(parent, 69);
+                    HDC dc = GetDC(group);
+                    if (dc == nullptr || !PtVisible(dc, 2, 20)) { passed = false; }
+                    for (int id : {71, 72, 73, 74, 75, 76, 77}) {
+                        HWND child = GetDlgItem(parent, id);
+                        if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) { continue; }
+                        RECT rect{}; GetWindowRect(child, &rect);
+                        MapWindowPoints(nullptr, group, reinterpret_cast<POINT*>(&rect), 2);
+                        const bool protected_from_group = dc != nullptr &&
+                            !PtVisible(dc, (rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+                        if (!protected_from_group || !IsWindowVisible(child)) {
+                            std::fprintf(stderr, "Manual control %d can be overpainted by its group (theme=%d)\n", id, static_cast<int>(appearance));
+                            passed = false;
+                        }
+                    }
+                    if (dc != nullptr) { ReleaseDC(group, dc); }
+                    // Repainting just the container must not erase siblings.
+                    RedrawWindow(group, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+                }
+            }
+            DestroyWindow(parent);
+        }
+    });
+    worker.join();
+    CloseDesktop(desktop);
+    return passed;
+}
+
 }  // namespace
 
 bool RunDashboardContractTests(const std::wstring& output_directory) {
+    if (!RepaintClippingContract()) { return false; }
+    WNDCLASSW fixture{}; fixture.lpfnWndProc = FixtureProcedure;
+    fixture.hInstance = GetModuleHandleW(nullptr); fixture.lpszClassName = L"AgentLatch.NativeFixture.v1";
+    if (!RegisterClassW(&fixture) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) { return false; }
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "Native UI check failed at line %d, dpi=%u\n", __LINE__, dpi); return false; } } while (false)
     for (Appearance appearance : {Appearance::Light, Appearance::Dark}) {
     for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
@@ -76,12 +145,13 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
         DestroyWindow(native_frame);
         // Client-only hosts make the test dimensions independent of the actual
         // monitor's non-client DPI. No window is shown or moved between screens.
-        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"AgentLatch native test",
+        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, fixture.lpszClassName, L"AgentLatch native test",
             WS_POPUP, 0, 0, preferred.cx, preferred.cy, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         CHECK(parent != nullptr);
         {
             DashboardControls controls;
             CHECK(controls.Initialize(parent, dpi));
+            SetWindowLongPtrW(parent, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&controls));
             CHECK(GetDlgItem(parent, 13) == nullptr && GetDlgItem(parent, 10) == nullptr && GetDlgItem(parent, 11) == nullptr);
             CHECK(TabCtrl_GetItemCount(controls.TabWindow()) == 3);
             CHECK((GetWindowLongPtrW(controls.TabWindow(), GWL_STYLE) & TCS_OWNERDRAWFIXED) == 0);
@@ -102,8 +172,40 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             HWND reasons = GetDlgItem(parent, kReasons);
             CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (LVS_OWNERDRAWFIXED | LVS_NOCOLUMNHEADER)) == 0);
             CHECK(Header_GetItemCount(ListView_GetHeader(reasons)) == 3);
+            HWND duration = GetDlgItem(parent, 75), custom_hours = GetDlgItem(parent, 76);
+            CHECK(duration != nullptr && custom_hours != nullptr && GetDlgItem(parent, 93) == nullptr);
+            CHECK(GetDlgItem(parent, 94) == nullptr);
+            CHECK(SendMessageW(duration, CB_GETCOUNT, 0, 0) == 8);
+            CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (WS_TABSTOP | LVS_SHOWSELALWAYS | WS_BORDER)) == 0);
+            constexpr unsigned int expected_hours[] = {0, 1, 2, 4, 8, 12, 24};
+            for (int preset = 0; preset < 7; ++preset) {
+                SendMessageW(duration, CB_SETCURSEL, preset, 0);
+                unsigned int hours = 999;
+                controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+                CHECK(!IsWindowEnabled(custom_hours));
+                CHECK(controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+                CHECK(hours == expected_hours[preset]);
+            }
+            SendMessageW(duration, CB_SETCURSEL, 7, 0);
+            unsigned int hours = 999;
+            controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+            CHECK(IsWindowEnabled(custom_hours));
+            for (const auto* invalid : {L"", L"0", L"169", L"-1", L"2x"}) {
+                SetWindowTextW(custom_hours, invalid);
+                CHECK(!controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+                CHECK(hours == 999);
+            }
+            for (const auto* valid : {L"1", L"8", L"168"}) {
+                SetWindowTextW(custom_hours, valid);
+                CHECK(controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+            }
+            SetWindowTextW(custom_hours, L"8");
+            SendMessageW(duration, CB_SETCURSEL, 0, 0);
+            controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
             auto state = Fixture(appearance);
             controls.Update(state);
+            CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 4); // Actual eight-hour session.
+            SendMessageW(duration, CB_SETCURSEL, 2, 0); // User's draft choice survives periodic refresh.
             CHECK(controls.IsDark() == (appearance == Appearance::Dark && !WindowsHighContrast()));
             const auto palette = ResolveDashboardPalette(appearance, WindowsHighContrast());
             const auto contrast = [&](COLORREF color) { return (std::max(Luminance(color), Luminance(palette.background)) + .05) /
@@ -154,7 +256,22 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 ListView_EnsureVisible(reasons, 12, FALSE);
                 const int top = ListView_GetTopIndex(reasons);
                 controls.Update(state);
-                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == 12 && ListView_GetTopIndex(reasons) == top);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == -1 && ListView_GetTopIndex(reasons) == top);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_FOCUSED) == -1);
+                // Synthetic input targets only this hidden fixture, not the desktop.
+                SendMessageW(reasons, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scale(20), scale(35)));
+                SendMessageW(reasons, WM_LBUTTONUP, 0, MAKELPARAM(scale(20), scale(35)));
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == -1);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_FOCUSED) == -1);
+                CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 2);
+                // Hidden fixture hit-tests ensure siblings do not intercept controls.
+                for (int id : {kManualStart, kManualStop, 75, 76, 92}) {
+                    HWND child = GetDlgItem(parent, id); RECT rect{}; GetWindowRect(child, &rect);
+                    if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) { continue; }
+                    MapWindowPoints(nullptr, parent, reinterpret_cast<POINT*>(&rect), 2);
+                    POINT center{(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2};
+                    CHECK(ChildWindowFromPointEx(parent, center, CWP_SKIPINVISIBLE) == child);
+                }
             }
             for (int id : {kScreen, kStartup, kNotifications}) {
                 HWND checkbox = GetDlgItem(parent, id);

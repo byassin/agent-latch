@@ -51,7 +51,11 @@ LRESULT CALLBACK CaptureProcedure(HWND window, UINT message, WPARAM wparam, LPAR
     if (context != nullptr) {
         if (message == WM_DRAWITEM && context->controls.DrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam))) { return TRUE; }
         if (message == WM_MEASUREITEM && context->controls.MeasureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lparam))) { return TRUE; }
-        if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
+        if (message == WM_NOTIFY) {
+            LRESULT result = 0;
+            if (context->controls.HandleNotify(reinterpret_cast<NMHDR*>(lparam), &result)) { return result; }
+        }
+        if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLOREDIT || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
             return reinterpret_cast<LRESULT>(context->controls.ControlColor(
                 reinterpret_cast<HDC>(wparam), reinterpret_cast<HWND>(lparam)));
         }
