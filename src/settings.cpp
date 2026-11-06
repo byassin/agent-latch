@@ -3,6 +3,8 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
+#include <cwchar>
 
 namespace agent_latch {
 namespace {
@@ -13,37 +15,40 @@ constexpr wchar_t kManualSessionValue[] = L"UntilUtc";
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kRunValue[] = L"AgentLatch";
 
-DWORD ReadDword(HKEY key, const wchar_t* name, DWORD fallback) {
-    DWORD value = 0;
-    DWORD type = 0;
-    DWORD size = sizeof(value);
-    if (RegQueryValueExW(key, name, nullptr, &type, reinterpret_cast<BYTE*>(&value), &size) != ERROR_SUCCESS ||
-        type != REG_DWORD || size != sizeof(value)) {
-        return fallback;
-    }
-    return value;
-}
+using RegistryQuery = decltype(&RegQueryValueExW);
 
-bool TryReadDword(HKEY key, const wchar_t* name, DWORD* value) {
-    if (value == nullptr) {
-        return false;
-    }
+bool TryReadDword(HKEY key, const wchar_t* name, DWORD* value,
+                  bool* valid = nullptr, RegistryQuery query = RegQueryValueExW) {
+    if (value == nullptr) { return false; }
     DWORD type = 0;
     DWORD size = sizeof(*value);
-    return RegQueryValueExW(key, name, nullptr, &type, reinterpret_cast<BYTE*>(value), &size) == ERROR_SUCCESS &&
-           type == REG_DWORD && size == sizeof(*value);
+    const LSTATUS result = query(key, name, nullptr, &type, reinterpret_cast<BYTE*>(value), &size);
+    // Missing or malformed individual preferences use defaults/legacy values.
+    // An access/deleted-key/I/O failure is not a valid complete snapshot.
+    if (valid != nullptr && result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND && result != ERROR_MORE_DATA) {
+        *valid = false;
+    }
+    return result == ERROR_SUCCESS && type == REG_DWORD && size == sizeof(*value);
+}
+
+DWORD ReadDword(HKEY key, const wchar_t* name, DWORD fallback,
+                bool* valid = nullptr, RegistryQuery query = RegQueryValueExW) {
+    DWORD value = 0;
+    return TryReadDword(key, name, &value, valid, query) ? value : fallback;
 }
 
 DetectionMode ReadDetectionMode(
     HKEY key,
     const wchar_t* mode_name,
     const wchar_t* legacy_enabled_name,
-    DetectionMode fallback) {
+    DetectionMode fallback,
+    bool* valid = nullptr,
+    RegistryQuery query = RegQueryValueExW) {
     DWORD value = 0;
-    if (TryReadDword(key, mode_name, &value) && value <= static_cast<DWORD>(DetectionMode::Open)) {
+    if (TryReadDword(key, mode_name, &value, valid, query) && value <= static_cast<DWORD>(DetectionMode::Open)) {
         return static_cast<DetectionMode>(value);
     }
-    if (TryReadDword(key, legacy_enabled_name, &value)) {
+    if (TryReadDword(key, legacy_enabled_name, &value, valid, query)) {
         return value == 0 ? DetectionMode::Off : DetectionMode::Tasks;
     }
     return fallback;
@@ -54,22 +59,23 @@ bool WriteDword(HKEY key, const wchar_t* name, DWORD value) {
                key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value)) == ERROR_SUCCESS;
 }
 
-}  // namespace
-
-bool Settings::Load() {
-    manual_keep_awake = false;
-    manual_end_utc_milliseconds = 0;
+bool LoadSettings(Settings& target, RegistryQuery query = RegQueryValueExW) {
+    // Always start from defaults: a missing value must not retain an old mode.
+    // Commit once, only after the entire registry snapshot was read successfully.
+    Settings snapshot;
     HKEY key = nullptr;
     const LSTATUS result = RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_QUERY_VALUE, &key);
-    if (result == ERROR_FILE_NOT_FOUND) {
+    if (result == ERROR_FILE_NOT_FOUND || result == ERROR_PATH_NOT_FOUND) {
+        target = snapshot;
         return true;
     }
     if (result != ERROR_SUCCESS) {
         return false;
     }
 
-    keep_display_on = ReadDword(key, L"KeepDisplayOn", keep_display_on ? 1u : 0u) != 0;
-    notifications = ReadDword(key, L"Notifications", notifications ? 1u : 0u) != 0;
+    bool valid = true;
+    snapshot.keep_display_on = ReadDword(key, L"KeepDisplayOn", snapshot.keep_display_on ? 1u : 0u, &valid, query) != 0;
+    snapshot.notifications = ReadDword(key, L"Notifications", snapshot.notifications ? 1u : 0u, &valid, query) != 0;
     ULONGLONG manual_value = 0;
     DWORD end_type = 0;
     DWORD end_size = sizeof(manual_value);
@@ -77,30 +83,139 @@ bool Settings::Load() {
     // A volatile child survives app restarts, but not a Windows restart/hive unload.
     HKEY manual_key = nullptr;
     const LSTATUS manual_result = RegOpenKeyExW(key, kManualSessionKey, 0, KEY_QUERY_VALUE, &manual_key);
-    if (manual_result == ERROR_SUCCESS &&
-        (RegQueryValueExW(manual_key, kManualSessionValue, nullptr, &end_type,
-                        reinterpret_cast<BYTE*>(&manual_value), &end_size) != ERROR_SUCCESS ||
-        end_type != REG_QWORD || end_size != sizeof(manual_value))) {
-        manual_value = 0;
+    if (manual_result == ERROR_SUCCESS) {
+        const LSTATUS end_result = query(manual_key, kManualSessionValue, nullptr, &end_type,
+            reinterpret_cast<BYTE*>(&manual_value), &end_size);
+        if (end_result != ERROR_SUCCESS || end_type != REG_QWORD || end_size != sizeof(manual_value)) {
+            manual_value = 0;
+        }
+        valid = (end_result == ERROR_SUCCESS || end_result == ERROR_FILE_NOT_FOUND || end_result == ERROR_MORE_DATA) && valid;
+    } else if (manual_result != ERROR_FILE_NOT_FOUND && manual_result != ERROR_PATH_NOT_FOUND) {
+        valid = false;
     }
     if (manual_key != nullptr) { RegCloseKey(manual_key); }
-    manual_keep_awake = manual_value != 0;
-    manual_end_utc_milliseconds = manual_value > 1 ? manual_value : 0;
-    codex_mode = ReadDetectionMode(key, L"ModeCodex", L"DetectCodex", codex_mode);
-    const DWORD appearance_value = ReadDword(key, L"Appearance", 0);
-    appearance = appearance_value <= 2 ? static_cast<Appearance>(appearance_value) : Appearance::System;
-    claude_mode = ReadDetectionMode(key, L"ModeClaude", L"DetectClaude", claude_mode);
-    cursor_mode = ReadDetectionMode(key, L"ModeCursor", L"DetectCursor", cursor_mode);
-    opencode_mode = ReadDetectionMode(key, L"ModeOpenCode", L"DetectOpenCode", opencode_mode);
-    gemini_mode = ReadDetectionMode(key, L"ModeGemini", L"DetectGemini", gemini_mode);
-    activity_grace_seconds = std::clamp<DWORD>(ReadDword(key, L"ActivityGraceSeconds", 180), 30, 1800);
-    codex_integration_expected = ReadDword(key, L"IntegrationExpectedCodex", 0) != 0;
-    codex_hook_seen = ReadDword(key, L"HookSeenCodex", 0) != 0;
-    claude_integration_expected = ReadDword(key, L"IntegrationExpectedClaude", 0) != 0;
-    claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0) != 0;
+    snapshot.manual_keep_awake = manual_value != 0;
+    snapshot.manual_end_utc_milliseconds = manual_value > 1 ? manual_value : 0;
+    snapshot.codex_mode = ReadDetectionMode(key, L"ModeCodex", L"DetectCodex", snapshot.codex_mode, &valid, query);
+    const DWORD appearance_value = ReadDword(key, L"Appearance", 0, &valid, query);
+    snapshot.appearance = appearance_value <= 2 ? static_cast<Appearance>(appearance_value) : Appearance::System;
+    snapshot.claude_mode = ReadDetectionMode(key, L"ModeClaude", L"DetectClaude", snapshot.claude_mode, &valid, query);
+    snapshot.cursor_mode = ReadDetectionMode(key, L"ModeCursor", L"DetectCursor", snapshot.cursor_mode, &valid, query);
+    snapshot.opencode_mode = ReadDetectionMode(key, L"ModeOpenCode", L"DetectOpenCode", snapshot.opencode_mode, &valid, query);
+    snapshot.gemini_mode = ReadDetectionMode(key, L"ModeGemini", L"DetectGemini", snapshot.gemini_mode, &valid, query);
+    snapshot.activity_grace_seconds = std::clamp<DWORD>(ReadDword(key, L"ActivityGraceSeconds", 180, &valid, query), 30, 1800);
+    snapshot.codex_integration_expected = ReadDword(key, L"IntegrationExpectedCodex", 0, &valid, query) != 0;
+    snapshot.codex_hook_seen = ReadDword(key, L"HookSeenCodex", 0, &valid, query) != 0;
+    snapshot.claude_integration_expected = ReadDword(key, L"IntegrationExpectedClaude", 0, &valid, query) != 0;
+    snapshot.claude_hook_seen = ReadDword(key, L"HookSeenClaude", 0, &valid, query) != 0;
     RegCloseKey(key);
-    return manual_result == ERROR_SUCCESS || manual_result == ERROR_FILE_NOT_FOUND;
+    if (!valid) { return false; }
+    target = snapshot;
+    return true;
 }
+
+bool SameSettings(const Settings& left, const Settings& right) {
+    return left.appearance == right.appearance && left.keep_display_on == right.keep_display_on &&
+        left.notifications == right.notifications && left.manual_keep_awake == right.manual_keep_awake &&
+        left.manual_end_utc_milliseconds == right.manual_end_utc_milliseconds &&
+        left.codex_mode == right.codex_mode && left.claude_mode == right.claude_mode &&
+        left.cursor_mode == right.cursor_mode && left.opencode_mode == right.opencode_mode &&
+        left.gemini_mode == right.gemini_mode && left.activity_grace_seconds == right.activity_grace_seconds &&
+        left.codex_integration_expected == right.codex_integration_expected && left.codex_hook_seen == right.codex_hook_seen &&
+        left.claude_integration_expected == right.claude_integration_expected && left.claude_hook_seen == right.claude_hook_seen;
+}
+
+LSTATUS WINAPI QueryWithInjectedFailure(HKEY key, LPCWSTR name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD size) {
+    // Used only by the isolated settings regression below, never by Load().
+    if (name != nullptr && std::wcscmp(name, L"ModeGemini") == 0) { return ERROR_ACCESS_DENIED; }
+    return RegQueryValueExW(key, name, reserved, type, data, size);
+}
+
+bool RunTrackingModeSettingsTests(HKEY test_root) {
+    // This is the newly-created unique test subtree's real handle, not HKCU.
+    // All fixture edits/deletes below stay relative to it even if redirection
+    // ever changes; only the production Load/Save calls exercise redirected HKCU.
+    if (test_root == nullptr || test_root == HKEY_CURRENT_USER) { return false; }
+    struct Preference { Provider provider; const wchar_t* mode; const wchar_t* legacy; };
+    constexpr std::array preferences{
+        Preference{Provider::Codex, L"ModeCodex", L"DetectCodex"},
+        Preference{Provider::ClaudeCode, L"ModeClaude", L"DetectClaude"},
+        Preference{Provider::Cursor, L"ModeCursor", L"DetectCursor"},
+        Preference{Provider::OpenCode, L"ModeOpenCode", L"DetectOpenCode"},
+        Preference{Provider::GeminiCli, L"ModeGemini", L"DetectGemini"}};
+    bool success = true;
+    // Rotate mixed values so every provider round-trips Off, Tasks and Open.
+    for (std::size_t rotation = 0; rotation < 3; ++rotation) {
+        Settings saved;
+        saved.keep_display_on = true; saved.notifications = false;
+        saved.manual_keep_awake = true; saved.appearance = Appearance::Dark;
+        saved.activity_grace_seconds = 75;
+        for (std::size_t index = 0; index < preferences.size(); ++index) {
+            saved.SetProviderMode(preferences[index].provider, static_cast<DetectionMode>((index + rotation) % 3));
+        }
+        Settings loaded;
+        success = saved.Save() && loaded.Load() && SameSettings(saved, loaded) && success;
+
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(test_root, kSettingsKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) { return false; }
+        for (const auto& preference : preferences) {
+            const DWORD contrary = saved.ProviderMode(preference.provider) == DetectionMode::Off ? 1u : 0u;
+            success = WriteDword(key, preference.legacy, contrary) && success;
+        }
+        RegCloseKey(key);
+        // Explicit modes, including Off and Open, take precedence over legacy flags.
+        success = loaded.Load() && SameSettings(saved, loaded) && success;
+    }
+
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(test_root, kSettingsKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) { return false; }
+    for (std::size_t index = 0; index < preferences.size(); ++index) {
+        const auto& preference = preferences[index];
+        const DWORD legacy = static_cast<DWORD>(index % 2);
+        const wchar_t malformed[] = L"0";
+        success = WriteDword(key, preference.legacy, legacy) && success;
+        success = (index % 2 == 0 ?
+            RegSetValueExW(key, preference.mode, 0, REG_SZ, reinterpret_cast<const BYTE*>(malformed), sizeof(malformed)) == ERROR_SUCCESS :
+            WriteDword(key, preference.mode, 99)) && success;
+    }
+    RegCloseKey(key);
+    Settings legacy_fallback;
+    success = legacy_fallback.Load() && success;
+    for (std::size_t index = 0; index < preferences.size(); ++index) {
+        success = legacy_fallback.ProviderMode(preferences[index].provider) ==
+            (index % 2 == 0 ? DetectionMode::Off : DetectionMode::Tasks) && success;
+    }
+
+    Settings existing;
+    existing.keep_display_on = false; existing.notifications = true;
+    existing.manual_keep_awake = true; existing.manual_end_utc_milliseconds = 123456789;
+    existing.appearance = Appearance::Light; existing.activity_grace_seconds = 600;
+    existing.codex_integration_expected = existing.codex_hook_seen = true;
+    existing.claude_integration_expected = existing.claude_hook_seen = true;
+    for (const auto& preference : preferences) { existing.SetProviderMode(preference.provider, DetectionMode::Open); }
+    const Settings before_failure = existing;
+    // Fail near the end of the read, after different values have been observed.
+    // A real read failure must not partially replace the caller's settings.
+    success = !LoadSettings(existing, QueryWithInjectedFailure) && SameSettings(existing, before_failure) && success;
+
+    // These keys belong to the process-local redirected test hive only.
+    success = RegDeleteTreeW(test_root, kSettingsKey) == ERROR_SUCCESS && success;
+    success = existing.Load() && SameSettings(existing, Settings{}) && success;
+    if (RegCreateKeyExW(test_root, kSettingsKey, 0, nullptr, REG_OPTION_NON_VOLATILE,
+        KEY_ALL_ACCESS, nullptr, &key, nullptr) != ERROR_SUCCESS) { return false; }
+    const wchar_t malformed[] = L"not-a-dword";
+    success = RegSetValueExW(key, L"Notifications", 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(malformed), sizeof(malformed)) == ERROR_SUCCESS && success;
+    RegCloseKey(key);
+    existing = before_failure;
+    success = existing.Load() && SameSettings(existing, Settings{}) && success;
+    success = RegDeleteTreeW(test_root, kSettingsKey) == ERROR_SUCCESS && success;
+    return success;
+}
+
+}  // namespace
+
+bool Settings::Load() { return LoadSettings(*this); }
 
 bool Settings::Save() const {
     HKEY key = nullptr;
@@ -187,7 +302,8 @@ bool RunSettingsSelfTests() {
     if (RegOverridePredefKey(HKEY_CURRENT_USER, test_root) != ERROR_SUCCESS) {
         RegCloseKey(test_root); RegDeleteTreeW(HKEY_CURRENT_USER, test_path.c_str()); return false;
     }
-    const bool valid = []() {
+    const bool valid = [test_root]() {
+        if (!RunTrackingModeSettingsTests(test_root)) { return false; }
         HKEY key = nullptr;
         if (RegCreateKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, nullptr, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, nullptr, &key, nullptr) != ERROR_SUCCESS) { return false; }

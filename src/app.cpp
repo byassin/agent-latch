@@ -5,6 +5,7 @@
 #include "dashboard_capture.h"
 #include "resource.h"
 #include "version.h"
+#include "startup_context.h"
 #include "win_util.h"
 
 #include <dwmapi.h>
@@ -240,11 +241,20 @@ AgentLatchApp::~AgentLatchApp() {
 }
 
 bool AgentLatchApp::Initialize(bool show_window) {
+    if (CurrentStartupIdentity() != StartupIdentity::Unpackaged) {
+        diagnostics_.Write(L"initialization_failed", L"component=startup_context");
+        return false;
+    }
     if (!settings_.Load()) {
         diagnostics_.Write(L"initialization_failed", L"component=settings");
         if (show_window) { MessageBoxW(nullptr, L"AgentLatch could not read its settings. Monitoring was not started. Check Windows permissions and try again.", L"AgentLatch", MB_OK | MB_ICONERROR); }
         return false;
     }
+    diagnostics_.Write(L"settings_loaded", L"context=unpackaged codex=" + std::to_wstring(static_cast<DWORD>(settings_.codex_mode)) +
+        L" claude=" + std::to_wstring(static_cast<DWORD>(settings_.claude_mode)) +
+        L" cursor=" + std::to_wstring(static_cast<DWORD>(settings_.cursor_mode)) +
+        L" opencode=" + std::to_wstring(static_cast<DWORD>(settings_.opencode_mode)) +
+        L" gemini=" + std::to_wstring(static_cast<DWORD>(settings_.gemini_mode)));
     manual_.Restore(settings_.manual_keep_awake, settings_.manual_end_utc_milliseconds,
                     GetTickCount64(), UtcMilliseconds());
     if (settings_.manual_keep_awake && !manual_.Active()) {

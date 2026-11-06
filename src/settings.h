@@ -30,6 +30,8 @@ struct Settings {
     bool claude_integration_expected{false};
     bool claude_hook_seen{false};
 
+    // A successful load replaces the whole snapshot, using defaults for missing
+    // or malformed preferences. Read failures leave this object unchanged.
     bool Load();
     bool Save() const;
     bool RefreshIntegrationStatus();

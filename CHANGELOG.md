@@ -4,6 +4,12 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-06
+
+- Normalize hook/direct/watchdog startup into a verified unpackaged Windows process before loading settings or claiming the singleton. Packaged callers use a bounded breakaway relay; the actual child is identity-checked while suspended and is never resumed in an unknown/private package context.
+- Load preferences as a complete fresh snapshot, preserving all five explicit tracking modes, using documented defaults/legacy values for missing or malformed fields, and leaving the previous snapshot intact on read failure. Add startup-context failure injection, native no-UI child probes and mixed-mode registry regressions.
+- Record content-free startup context and loaded mode values for troubleshooting. No settings migration, periodic mode override or changes to manual reboot-reset behavior.
+
 ## [0.6.0] - 2026-11-06
 
 - Add a release-delay selector on Agents (30 seconds to 30 minutes; default unchanged at 3 minutes), preserve existing custom saved values, and explain that lifecycle hooks/manual timers have separate timing.
@@ -286,7 +292,8 @@ Local-only build; first published as part of 0.3.0.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/byassin/agent-latch/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/byassin/agent-latch/compare/v0.5.2...v0.6.0
 [0.2.4]: https://github.com/byassin/agent-latch/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/byassin/agent-latch/compare/v0.2.2...v0.2.3

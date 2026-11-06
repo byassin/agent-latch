@@ -2,6 +2,8 @@
 
 ## Local status reports
 
+The 0.6.1 startup fix logs only an unpackaged-context marker and the five loaded numeric tracking modes. It does not log package names, raw registry contents, usernames or additional task identifiers. Package-identity checks request only the size/status needed to distinguish packaged from unpackaged, not the package-name string.
+
 Version 0.6.0 adds an explicitly requested JSON export with version/time, preferences, provider modes and aggregate counts, manual status and actual power-request flags/errors. It excludes user labels/details, session/worker IDs, owner PIDs, usernames, paths, prompts/responses and raw logs. Exports remain at the chosen location and are never automatically uploaded; review aggregate usage/preferences before sharing. CLI inspection does not auto-start the app or acquire a latch. Report logging records only success/failure. User-chosen reports are not deleted on uninstall. See [schema and behavior](STATUS-REPORT.md).
 
 ## Local-only defaults

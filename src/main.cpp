@@ -8,6 +8,7 @@
 #include "openai_ui_activity.h"
 #include "power_request.h"
 #include "settings.h"
+#include "startup_context.h"
 #include "types.h"
 #include "watchdog.h"
 #include "wake_sessions.h"
@@ -34,7 +35,7 @@ struct CommandLine {
             option == L"--hours" || option == L"--source" || option == L"--label" || option == L"--detail" || option == L"--ttl";
     }
     static bool Primary(const std::wstring& option) {
-        return option == L"--watchdog" || option == L"--hook" || option == L"--self-test" ||
+        return option == L"--watchdog" || option == L"--hook" || option == L"--self-test" || option == L"--startup-check" ||
             option == L"--show" || option == L"--quit" || option == L"--release" ||
             option == L"--keep-awake" || option == L"--stop-keep-awake" || option == L"--acquire" ||
             option == L"--export-status" || option == L"--export-ui-screenshots";
@@ -48,7 +49,19 @@ struct CommandLine {
             seen.push_back(option);
             commands += Primary(option) ? 1u : 0u;
             if (TakesValue(option)) { if (++index >= arguments.size()) { return false; } }
-            else if (!Primary(option) && option != L"--background" && option != L"--indefinite") { return false; }
+            else if (!Primary(option) && option != L"--background" && option != L"--indefinite" && option != L"--startup-relay") { return false; }
+        }
+        if (Has(L"--startup-relay")) {
+            if (Has(L"--startup-check")) { return arguments.size() == 2 && commands == 1; }
+            // The bounded relay may launch only a monitor/watchdog, never
+            // replay a hook payload or turn an inspection command into startup.
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const auto& option = arguments[index];
+                if (option != L"--startup-relay" && option != L"--background" &&
+                    option != L"--watchdog" && option != L"--restart-attempt") { return false; }
+                if (TakesValue(option)) { ++index; }
+            }
+            return commands <= 1 && (commands == 1 || arguments.size() == 1 || Has(L"--background"));
         }
         return commands <= 1 && (arguments.empty() || commands == 1 || Has(L"--background"));
     }
@@ -115,6 +128,38 @@ unsigned int ReadRestartAttempt(const CommandLine& command_line) {
     return ParseDwordValue(command_line.ValueAfter(L"--restart-attempt"), &attempt) && attempt <= 100
                ? static_cast<unsigned int>(attempt)
                : 0u;
+}
+
+bool BuildStartupArguments(const CommandLine& command_line, std::wstring* arguments) {
+    if (arguments == nullptr) { return false; }
+    arguments->clear();
+    if (command_line.Has(L"--startup-check")) { *arguments = L"--startup-check"; return true; }
+    if (command_line.Has(L"--watchdog")) {
+        DWORD process_id = 0;
+        if (!ParseDwordValue(command_line.ValueAfter(L"--watchdog"), &process_id) || process_id == 0) { return false; }
+        *arguments = L"--watchdog " + std::to_wstring(process_id);
+    }
+    if (command_line.Has(L"--background")) { *arguments += L" --background"; }
+    if (command_line.Has(L"--restart-attempt")) {
+        *arguments += L" --restart-attempt " + std::to_wstring(ReadRestartAttempt(command_line));
+    }
+    return true;
+}
+
+int NormalizeStartupContext(const CommandLine& command_line) {
+    const auto identity = CurrentStartupIdentity();
+    if (identity == StartupIdentity::Unpackaged) { return -1; }
+    std::wstring arguments;
+    if (identity == StartupIdentity::Packaged && BuildStartupArguments(command_line, &arguments) &&
+        LaunchCanonicalProcess(arguments)) { return 0; }
+    const DWORD error = GetLastError();
+    DiagnosticsLog diagnostics;
+    diagnostics.Write(L"startup_context_failed", L"error=" + std::to_wstring(error));
+    if (!command_line.Has(L"--background") && !command_line.Has(L"--watchdog")) {
+        MessageBoxW(nullptr, L"AgentLatch could not start in the normal Windows user context. No tracking settings were loaded or changed. Start AgentLatch from the Start menu and check diagnostics if this continues.",
+            L"AgentLatch", MB_OK | MB_ICONERROR);
+    }
+    return 84;
 }
 
 bool RunOpenAIUiActivityContractTests() {
@@ -388,6 +433,22 @@ int RunSelfTests(const std::wstring& snapshot_directory) {
     const CommandLine duplicate{{L"--release", L"--id", L"one", L"--id", L"two"}};
     if (!quoted_label.Valid() || quoted_label.Has(L"--quit") || quoted_label.ValueAfter(L"--label") != L"--quit" ||
         mixed.Valid() || duplicate.Valid() || CommandLine{{L"--unknown"}}.Valid()) { return 83; }
+    if (!CommandLine{{L"--startup-relay"}}.Valid() ||
+        !CommandLine{{L"--startup-relay", L"--startup-check"}}.Valid() ||
+        !CommandLine{{L"--startup-relay", L"--background", L"--restart-attempt", L"2"}}.Valid() ||
+        !CommandLine{{L"--startup-relay", L"--watchdog", L"123"}}.Valid() ||
+        CommandLine{{L"--startup-relay", L"--hook", L"claude"}}.Valid() ||
+        CommandLine{{L"--startup-relay", L"--quit"}}.Valid() ||
+        CommandLine{{L"--startup-relay", L"--self-test"}}.Valid() ||
+        CommandLine{{L"--startup-relay", L"--export-status", L"C:\\unused.json"}}.Valid()) { return 83; }
+    std::wstring startup_arguments;
+    if (!BuildStartupArguments(CommandLine{{L"--startup-relay", L"--background", L"--restart-attempt", L"2"}}, &startup_arguments) ||
+        startup_arguments != L" --background --restart-attempt 2" ||
+        BuildStartupArguments(CommandLine{{L"--startup-relay", L"--watchdog", L"--quit"}}, &startup_arguments)) { return 83; }
+    if (!BuildStartupArguments(CommandLine{{L"--startup-relay", L"--startup-check"}}, &startup_arguments) ||
+        startup_arguments != L"--startup-check" ||
+        CommandLine{{L"--startup-relay", L"--startup-check", L"--background"}}.Valid()) { return 83; }
+    if (!RunStartupContextSelfTests()) { return 84; }
     if (!RunPowerRequestSelfTests()) { return 81; }
     if (!RunManualHoursDialogTests()) { return 68; }
     if (!RunClaudeLifecycleSelfTests()) { return 67; }
@@ -637,6 +698,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
     const CommandLine command_line = ReadCommandLine();
     if (!command_line.Valid()) { return 2; }
 
+    // Probe and relay exit before settings, singleton ownership, hooks or UI.
+    // A relay launches exactly one identity-checked child, never another relay.
+    if (command_line.Has(L"--startup-relay")) {
+        std::wstring arguments;
+        if (!BuildStartupArguments(command_line, &arguments)) { return 2; }
+        return RunCanonicalStartupRelay(arguments);
+    }
+    if (command_line.Has(L"--startup-check")) {
+        // A probe must be the relay's actual child, not the relay itself.
+        // This also makes the native smoke fail if dispatch is ever reordered.
+        if (command_line.Has(L"--startup-relay")) { return 84; }
+        return CurrentStartupIdentity() == StartupIdentity::Unpackaged ? 0 : 84;
+    }
+
     if (command_line.Has(L"--self-test")) {
         return RunSelfTests(command_line.ValueAfter(L"--test-render-dir"));
     }
@@ -645,10 +720,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
             ProviderFromString(command_line.ValueAfter(L"--hook")),
             command_line.ValueAfter(L"--event"));
     }
+    if (command_line.Has(L"--watchdog")) {
+        const int normalized = NormalizeStartupContext(command_line);
+        if (normalized >= 0) { return normalized; }
+    }
     const int utility_result = HandleUtilityCommand(command_line);
     if (utility_result >= 0) {
         return utility_result;
     }
+
+    // The same saved HKCU preferences must be used whichever agent launches us.
+    // Do not let a packaged parent's private registry view win the singleton.
+    const int normalized = NormalizeStartupContext(command_line);
+    if (normalized >= 0) { return normalized; }
 
     HANDLE mutex = CreateMutexW(nullptr, TRUE, kInstanceMutexName);
     if (mutex == nullptr) {

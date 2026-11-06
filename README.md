@@ -8,12 +8,14 @@
 
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep while AI agents work—or whenever you explicitly need your PC to stay awake. It understands concurrent agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source, manual session, and safety grace finish.
 
-**AgentLatch 0.6.0** adds configurable activity release delay, privacy-minimized status reports, cancelled-Codex-turn detection and Windows power-request recovery. See the [review and validation notes](docs/REVIEW.md) for details and remaining limitations.
+**AgentLatch 0.6.1** fixes startup settings consistency: the monitor verifies its process context before reading saved tracking modes, and preferences load as a complete fresh snapshot. It retains 0.6.0's configurable release delay, private status reports and power-request recovery. See the [review and validation notes](docs/REVIEW.md).
+
+Hook, direct and watchdog launches now use the same checked startup path; unknown or still-packaged actual children are not allowed to load a private settings view. No preference migration or periodic mode override is needed. See [startup settings context](docs/ARCHITECTURE.md#startup-settings-context).
 
 <p align="center">
   <img src="assets/dashboard.png" width="620" alt="AgentLatch Overview with activity-first layout and compact manual override">
 </p>
-<p align="center"><sub>Native 0.6.0 UI rendered off-screen with illustrative activity. These are real controls with test data, not an overnight protection test.</sub></p>
+<p align="center"><sub>Native 0.6.1 UI rendered off-screen with illustrative activity. These are real controls with test data, not an overnight protection test.</sub></p>
 
 ## A compact Windows utility
 
@@ -165,7 +167,7 @@ CLI status export never starts a stopped app: exit 4 means no running instance, 
 
 Requirements:
 
-- Windows 10 or Windows 11
+- Windows 10 (version 1809 or newer) or Windows 11
 - Visual Studio 2022 Build Tools with Desktop development with C++
 - CMake 3.24 or newer
 - Inno Setup 7 when building the Windows setup executable
@@ -181,7 +183,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.6.0
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.6.1
 ```
 
 ## Design principles

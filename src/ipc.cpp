@@ -1,10 +1,10 @@
 #include "ipc.h"
 
 #include "win_util.h"
+#include "startup_context.h"
 
 #include <algorithm>
 #include <sstream>
-#include <vector>
 
 namespace agent_latch {
 
@@ -55,32 +55,7 @@ bool EnsureBackgroundInstance() {
         return true;
     }
 
-    const std::wstring executable = GetExecutablePath();
-    if (executable.empty()) {
-        return false;
-    }
-
-    std::wstring command_line = L"\"" + executable + L"\" --background";
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    std::vector<wchar_t> writable(command_line.begin(), command_line.end());
-    writable.push_back(L'\0');
-    if (!CreateProcessW(
-            executable.c_str(),
-            writable.data(),
-            nullptr,
-            nullptr,
-            FALSE,
-            CREATE_NO_WINDOW,
-            nullptr,
-            nullptr,
-            &startup,
-            &process)) {
-        return false;
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
+    if (!LaunchCanonicalProcess(L"--background")) { return false; }
 
     for (unsigned int attempt = 0; attempt < 40; ++attempt) {
         if (FindWindowW(kWindowClassName, nullptr) != nullptr) {
