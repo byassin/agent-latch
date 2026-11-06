@@ -3,6 +3,9 @@
 
 #include <wincodec.h>
 #include <filesystem>
+#include <vector>
+#include <algorithm>
+#include <cstdlib>
 
 namespace agent_latch {
 namespace {
@@ -11,6 +14,33 @@ struct CaptureContext {
     DashboardControls controls;
     DashboardState state;
 };
+
+// Some Windows themes print a hidden drop-down's frame but omit its selection
+// field. Complete that export from the REAL standard control's current text,
+// font and item rectangle, only when the native print left the field blank.
+// This is confined to off-screen export; the live combo is entirely OS-drawn.
+void PrintMissingComboSelection(HWND combo, HDC dc) {
+    COMBOBOXINFO info{}; info.cbSize = sizeof(info);
+    if (!GetComboBoxInfo(combo, &info) || SendMessageW(combo, CB_GETCURSEL, 0, 0) == CB_ERR) { return; }
+    RECT item = info.rcItem; InflateRect(&item, -3, -3);
+    const COLORREF background = GetPixel(dc, item.right - 1, (item.top + item.bottom) / 2);
+    if (background == CLR_INVALID) { return; }
+    for (int y = item.top; y < item.bottom; ++y) {
+        for (int x = item.left; x < item.right; ++x) {
+            const COLORREF pixel = GetPixel(dc, x, y);
+            if (pixel != CLR_INVALID && (std::abs(static_cast<int>(GetRValue(pixel)) - GetRValue(background)) > 60 ||
+                std::abs(static_cast<int>(GetGValue(pixel)) - GetGValue(background)) > 60 ||
+                std::abs(static_cast<int>(GetBValue(pixel)) - GetBValue(background)) > 60)) { return; }
+        }
+    }
+    wchar_t text[128]{}; GetWindowTextW(combo, text, static_cast<int>(std::size(text)));
+    HGDIOBJ previous = SelectObject(dc, reinterpret_cast<HFONT>(SendMessageW(combo, WM_GETFONT, 0, 0)));
+    SetTextColor(dc, GetSysColor(IsWindowEnabled(combo) ? COLOR_WINDOWTEXT : COLOR_GRAYTEXT));
+    SetBkMode(dc, TRANSPARENT);
+    RECT label = info.rcItem; label.left += 3;
+    DrawTextW(dc, text, -1, &label, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    SelectObject(dc, previous);
+}
 
 LRESULT CALLBACK CaptureProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     auto* context = reinterpret_cast<CaptureContext*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -98,7 +128,14 @@ bool ExportDashboardScreenshots(const DashboardState& state, const std::wstring&
             context.state.page = page;
             context.controls.SelectPage(page);
             context.renderer.Paint(dc, RECT{0, 0, size.cx, size.cy}, context.state);
+            // Paint in actual back-to-front order. A real tab pane fills its
+            // interior and must be printed before the sibling page controls.
+            std::vector<HWND> children;
             for (HWND child = GetWindow(window, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT)) {
+                children.push_back(child);
+            }
+            std::reverse(children.begin(), children.end());
+            for (HWND child : children) {
                 if ((GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) { continue; }
                 RECT bounds{};
                 GetWindowRect(child, &bounds);
@@ -107,7 +144,10 @@ bool ExportDashboardScreenshots(const DashboardState& state, const std::wstring&
                 SetViewportOrgEx(dc, bounds.left, bounds.top, nullptr);
                 IntersectClipRect(dc, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top);
                 SendMessageW(child, WM_PRINT, reinterpret_cast<WPARAM>(dc),
-                             PRF_CLIENT | PRF_CHILDREN | PRF_ERASEBKGND);
+                             PRF_CLIENT | PRF_CHILDREN | PRF_ERASEBKGND | PRF_NONCLIENT);
+                wchar_t class_name[64]{};
+                GetClassNameW(child, class_name, static_cast<int>(std::size(class_name)));
+                if (_wcsicmp(class_name, WC_COMBOBOXW) == 0) { PrintMissingComboSelection(child, dc); }
                 RestoreDC(dc, saved);
             }
             GdiFlush();

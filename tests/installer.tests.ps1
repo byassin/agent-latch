@@ -58,6 +58,9 @@ try {
         'CONTRIBUTING.md',
         'SECURITY.md',
         'assets\dashboard.png',
+        'assets\light\dashboard.png',
+        'assets\light\agents.png',
+        'assets\light\settings.png',
         'docs\ARCHITECTURE.md',
         'docs\INTEGRATIONS.md',
         'docs\PRIVACY.md'

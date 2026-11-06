@@ -18,6 +18,7 @@ namespace agent_latch {
 
 std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mode);
 unsigned int DetectorLatchInstanceCount(const DetectionResult& result, DetectionMode mode);
+bool RunManualHoursDialogTests();
 
 class AgentLatchApp {
 public:

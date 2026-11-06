@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory,
-    [string]$AgentLatchPath = (Join-Path $env:LOCALAPPDATA 'AgentLatch\AgentLatch.exe')
+    [string]$AgentLatchPath = (Join-Path $env:LOCALAPPDATA 'AgentLatch\AgentLatch.exe'),
+    [ValidateSet('Current','System','Light','Dark')][string]$Theme = 'Current'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +17,7 @@ if ((Get-Item -LiteralPath $AgentLatchPath).VersionInfo.FileVersionRaw -lt [vers
 [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 # Product CLI only: no desktop pixels, activation, visible navigation or input.
 $arguments = '--export-ui-screenshots "' + $OutputDirectory + '"'
+if ($Theme -ne 'Current') { $arguments += ' --capture-theme ' + $Theme.ToLowerInvariant() }
 $process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $null = $process.Handle
 if (-not $process.WaitForExit(30000)) { throw 'AgentLatch capture command timed out.' }

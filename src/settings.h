@@ -11,8 +11,10 @@ enum class DetectionMode : DWORD {
     Tasks = 1,
     Open = 2,
 };
+enum class Appearance : DWORD { System = 0, Light = 1, Dark = 2 };
 
 struct Settings {
+    Appearance appearance{Appearance::System};
     bool keep_display_on{false};
     bool notifications{true};
     bool manual_keep_awake{false};

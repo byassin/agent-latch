@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.4.3 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.5.0 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -14,11 +14,15 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
     @ONLY
 )
+set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc" PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest;${CMAKE_CURRENT_SOURCE_DIR}/resources/app.ico;${CMAKE_CURRENT_SOURCE_DIR}/resources/resource.h"
+)
 
 add_executable(AgentLatch WIN32
     src/main.cpp
     src/app.cpp
     src/ui.cpp
+    src/ui_theme.cpp
     src/types.cpp
     src/win_util.cpp
     src/settings.cpp
@@ -30,6 +34,7 @@ add_executable(AgentLatch WIN32
     src/hook_bridge.cpp
     src/claude_lifecycle.cpp
     tests/claude_lifecycle_tests.cpp
+    tests/native_ui_tests.cpp
     src/diagnostics.cpp
     src/watchdog.cpp
     src/wake_sessions.cpp

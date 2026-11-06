@@ -83,6 +83,7 @@ Source: "{#RepoRoot}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\dashboard.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\agents.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\settings.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\light\*.png"; DestDir: "{app}\assets\light"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\ARCHITECTURE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion

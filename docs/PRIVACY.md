@@ -12,6 +12,8 @@ It does not include analytics, advertising, telemetry, crash upload, an account 
 - provider lifecycle JSON sent directly to the hook command, from which it uses event name, session/subagent/task identity, Claude background-worker IDs/types/status and idle-notification type, and (for other providers) the leaf workspace folder name; and
 - settings selected in the dashboard.
 
+Appearance is another ordinary preference (System, Light or Dark) under the existing AgentLatch key. System mode reads Windows' app-color preference and high-contrast flag; it never changes Windows personalization settings. An export-only theme override affects the hidden clone, not saved settings or the visible window.
+
 Codex session blocks, OpenAI composer metadata, and hook input are processed in memory and discarded. Claude's reducer retains session/worker IDs, short types, owner PID/creation time and lifecycle state only in memory, to reconcile background completion without retaining task subjects, descriptions, shell commands, transcript paths or assistant messages. Its normalized local IPC contains only that metadata, never raw hook JSON or task content. For English UI, the OpenAI command name is expected to be Send or Stop; for other locales, the learned disabled-idle command name remains in memory only. AgentLatch does not enumerate or read conversation-message or prompt-edit controls. The dashboard displays short provider/worker labels and, for other providers, a workspace leaf name. Automatic latches and restart-grace state are memory-only; the explicit manual keep-awake choice is saved as described below.
 
 ## Data AgentLatch stores

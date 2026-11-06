@@ -91,11 +91,30 @@ std::wstring DetectorId(Provider provider) {
     return std::wstring(L"detector:") + ProviderKey(provider);
 }
 
-INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, LPARAM) {
+INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* controls = reinterpret_cast<DashboardControls*>(GetWindowLongPtrW(dialog, DWLP_USER));
+    if (message == WM_NCDESTROY) {
+        SetWindowLongPtrW(dialog, DWLP_USER, 0); delete controls; return FALSE;
+    }
     if (message == WM_CLOSE) { EndDialog(dialog, 0); return TRUE; }
     if (message == WM_INITDIALOG) {
+        controls = new DashboardControls;
+        SetWindowLongPtrW(dialog, DWLP_USER, reinterpret_cast<LONG_PTR>(controls));
+        controls->InitializeDialog(dialog, GetDpiForWindow(dialog), static_cast<Appearance>(lparam & 0xff));
         SetDlgItemInt(dialog, IDC_MANUAL_HOURS, 8, FALSE);
         SendDlgItemMessageW(dialog, IDC_MANUAL_HOURS, EM_SETLIMITTEXT, 3, 0);
+        // Hidden self-tests must not let the dialog manager assign keyboard
+        // focus. Real, user-opened modal dialogs keep normal native focus.
+        return (lparam & 0x100) != 0 ? FALSE : TRUE;
+    }
+    if (controls != nullptr && (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN ||
+        message == WM_CTLCOLOREDIT || message == WM_CTLCOLORDLG)) {
+        const HWND child = message == WM_CTLCOLORDLG ? GetWindow(dialog, GW_CHILD) : reinterpret_cast<HWND>(lparam);
+        return reinterpret_cast<INT_PTR>(controls->ControlColor(reinterpret_cast<HDC>(wparam), child));
+    }
+    if (controls != nullptr && message == WM_ERASEBKGND) {
+        RECT rect{}; GetClientRect(dialog, &rect);
+        FillRect(reinterpret_cast<HDC>(wparam), &rect, controls->ControlColor(reinterpret_cast<HDC>(wparam), GetWindow(dialog, GW_CHILD)));
         return TRUE;
     }
     if (message == WM_COMMAND) {
@@ -107,8 +126,8 @@ INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, 
             BOOL valid = FALSE;
             const UINT hours = GetDlgItemInt(dialog, IDC_MANUAL_HOURS, &valid, FALSE);
             if (!valid || hours < 1 || hours > ManualKeepAwake::kMaximumHours) {
-                MessageBoxW(dialog, L"Enter a whole number of hours from 1 to 168.",
-                            L"AgentLatch", MB_OK | MB_ICONINFORMATION);
+                SetDlgItemTextW(dialog, IDC_MANUAL_ERROR, L"Enter a whole number from 1 to 168.");
+                if (IsWindowVisible(dialog)) { SetFocus(GetDlgItem(dialog, IDC_MANUAL_HOURS)); }
                 return TRUE;
             }
             EndDialog(dialog, kManualHoursDialogAcceptedBase + static_cast<INT_PTR>(hours));
@@ -190,6 +209,24 @@ std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mod
            (mode == DetectionMode::Tasks ? L" task" : L" open");
 }
 
+bool RunManualHoursDialogTests() {
+    for (Appearance appearance : {Appearance::Light, Appearance::Dark}) {
+        HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
+            nullptr, ManualHoursProcedure, static_cast<LPARAM>(appearance) | 0x100);
+        if (dialog == nullptr) { return false; }
+        const bool hidden = !IsWindowVisible(dialog);
+        const bool initial = GetDlgItemInt(dialog, IDC_MANUAL_HOURS, nullptr, FALSE) == 8;
+        SetDlgItemInt(dialog, IDC_MANUAL_HOURS, 0, FALSE);
+        SendMessageW(dialog, WM_COMMAND, IDOK, 0);
+        wchar_t error[128]{}; GetDlgItemTextW(dialog, IDC_MANUAL_ERROR, error, 128);
+        auto* controls = reinterpret_cast<DashboardControls*>(GetWindowLongPtrW(dialog, DWLP_USER));
+        const bool themed = controls != nullptr && controls->IsDark() == (appearance == Appearance::Dark && !WindowsHighContrast());
+        DestroyWindow(dialog);
+        if (!hidden || !initial || error[0] == L'\0' || !themed) { return false; }
+    }
+    return true;
+}
+
 unsigned int DetectorLatchInstanceCount(const DetectionResult& result, DetectionMode mode) {
     return mode == DetectionMode::Open ? result.running_instances
                                       : std::max(1u, result.active_task_instances);
@@ -229,19 +266,20 @@ bool AgentLatchApp::Initialize(bool show_window) {
     window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.lpfnWndProc = WindowProcedure;
     window_class.hInstance = instance_;
-    window_class.hIcon = idle_icon_;
+    window_class.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_AGENTLATCH));
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.hbrBackground = nullptr;
     window_class.lpszClassName = kWindowClassName;
-    window_class.hIconSm = idle_icon_;
+    window_class.hIconSm = static_cast<HICON>(LoadImageW(instance_, MAKEINTRESOURCEW(IDI_AGENTLATCH),
+        IMAGE_ICON, GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_SHARED));
     if (RegisterClassExW(&window_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         return false;
     }
 
     SIZE client_size = renderer_.PreferredClientSize();
     RECT window_rectangle{0, 0, client_size.cx, client_size.cy};
-    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
-    AdjustWindowRectEx(&window_rectangle, style, FALSE, 0);
+    const DWORD style = kDashboardWindowStyle;
+    AdjustWindowRectExForDpi(&window_rectangle, style, FALSE, 0, dpi);
     const int window_width = window_rectangle.right - window_rectangle.left;
     RECT work_area{};
     if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0)) {
@@ -271,8 +309,6 @@ bool AgentLatchApp::Initialize(bool show_window) {
     }
     if (!controls_.Initialize(window_, dpi)) { return false; }
 
-    const BOOL dark_mode = TRUE;
-    DwmSetWindowAttribute(window_, 20, &dark_mode, sizeof(dark_mode));
     taskbar_created_message_ = RegisterWindowMessageW(L"TaskbarCreated");
     AddTrayIcon();
     SetTimer(window_, kRefreshTimer, kRefreshMilliseconds, nullptr);
@@ -436,7 +472,7 @@ void AgentLatchApp::ShowManualMenu() {
         StartManualSession(command - 100);
     } else if (command == 2) {
         const INT_PTR result = DialogBoxParamW(instance_, MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
-            window_, ManualHoursProcedure, 0);
+            window_, ManualHoursProcedure, static_cast<LPARAM>(settings_.appearance));
         const unsigned int duration = ManualHoursFromDialogResult(result);
         if (duration != 0) { StartManualSession(duration); }
     }
@@ -633,8 +669,15 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
         DestroyWindow(window_);
         return true;
     }
-    if (fields[0] == L"CAPTURE_UI" && fields.size() == 2 && !fields[1].empty()) {
-        const bool success = ExportDashboardScreenshots(DashboardSnapshot(), fields[1], GetDpiForWindow(window_));
+    if (fields[0] == L"CAPTURE_UI" && (fields.size() == 2 || fields.size() == 3) && !fields[1].empty()) {
+        auto state = DashboardSnapshot();
+        if (fields.size() == 3) {
+            if (fields[2] == L"light") { state.settings.appearance = Appearance::Light; }
+            else if (fields[2] == L"dark") { state.settings.appearance = Appearance::Dark; }
+            else if (fields[2] != L"system") { return false; }
+            else { state.settings.appearance = Appearance::System; }
+        }
+        const bool success = ExportDashboardScreenshots(state, fields[1], GetDpiForWindow(window_));
         diagnostics_.Write(L"dashboard_capture", success ? L"success=1" : L"success=0");
         return success;
     }
@@ -735,18 +778,6 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
             break;
         case UiAction::OpenDiagnostics:
             OpenDiagnostics();
-            break;
-        case UiAction::MoreMenu: {
-            RECT bounds{}; GetWindowRect(controls_.ActionWindow(UiAction::MoreMenu), &bounds);
-            POINT location{bounds.left, bounds.bottom};
-            ShowTrayMenu(location);
-            break;
-        }
-        case UiAction::PreviousSources:
-            controls_.ChangeReasonPage(-1);
-            break;
-        case UiAction::NextSources:
-            controls_.ChangeReasonPage(1);
             break;
         case UiAction::None:
             return;
@@ -998,8 +1029,6 @@ void AgentLatchApp::UpdateTrayIcon() {
                                  : L"AgentLatch · Windows can sleep";
     lstrcpynW(tray_icon_.szTip, tip.c_str(), static_cast<int>(std::size(tray_icon_.szTip)));
     Shell_NotifyIconW(NIM_MODIFY, &tray_icon_);
-    SendMessageW(window_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(tray_icon_.hIcon));
-    SendMessageW(window_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(tray_icon_.hIcon));
 }
 
 LRESULT CALLBACK AgentLatchApp::WindowProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -1041,6 +1070,18 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             return 1;
         case WM_COMMAND: {
             if (LOWORD(wparam) == IDCANCEL) { ShowWindow(window_, SW_HIDE); return 0; }
+            Appearance appearance{};
+            if (controls_.ReadAppearanceChange(wparam, &appearance)) {
+                const auto previous = settings_.appearance;
+                settings_.appearance = appearance;
+                if (!settings_.Save()) {
+                    settings_.appearance = previous;
+                    diagnostics_.Write(L"appearance_save_failed");
+                }
+                Tick(false);
+                InvalidateRect(window_, nullptr, TRUE);
+                return 0;
+            }
             Provider provider{}; DetectionMode mode{};
             if (controls_.ReadProviderChange(wparam, &provider, &mode)) {
                 ChangeProviderMode(provider, mode);
@@ -1104,11 +1145,21 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
         }
         case WM_GETMINMAXINFO: {
             MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lparam);
-            const SIZE preferred = renderer_.PreferredClientSize();
-            info->ptMinTrackSize.x = preferred.cx;
-            info->ptMinTrackSize.y = std::min<LONG>(preferred.cy, GetSystemMetrics(SM_CYSCREEN));
+            const SIZE minimum = renderer_.MinimumClientSize();
+            RECT bounds{0, 0, minimum.cx, minimum.cy};
+            const UINT dpi = GetDpiForWindow(window_);
+            AdjustWindowRectExForDpi(&bounds, static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_STYLE)),
+                FALSE, static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_EXSTYLE)), dpi == 0 ? 96 : dpi);
+            info->ptMinTrackSize.x = bounds.right - bounds.left;
+            info->ptMinTrackSize.y = std::min<LONG>(bounds.bottom - bounds.top, GetSystemMetrics(SM_CYSCREEN));
             return 0;
         }
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+        case WM_SETTINGCHANGE:
+            controls_.RefreshTheme();
+            InvalidateRect(window_, nullptr, TRUE);
+            break;
         case WM_SIZE:
             controls_.Layout();
             return 0;

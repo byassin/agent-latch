@@ -4,6 +4,14 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
+- Rebuilt the dashboard with Windows-themed tabs, standard buttons/checkboxes/dropdowns, and a native three-column activity table. Removed the duplicate More menu and in-content branding header; the tray right-click menu remains the command hub.
+- Restored a fully Windows-owned, resizable window frame with native minimize/maximize/close controls, correct DPI-aware minimum sizing, and the official app icon. Closing still hides to the tray.
+- Replaced custom five-row pagination with normal native list scrolling and preserved selection/scroll position on unchanged refreshes. Added a standard status bar and stable manual-override controls.
+- Added System, Light and Dark appearance choices, applied immediately and saved independently of tracking settings. Dark mode covers controls, dropdown items, table headers, scrollbars, disabled/focused/pressed states and the custom-hours dialog. Windows continues drawing the real title bar and caption buttons; dark control surfaces use public Win32 painting with native input/accessibility rather than private dark-mode ordinals.
+- Added the common-controls v6 manifest dependency and resource rebuild dependencies. Hidden tests cover native control styles/state, three sizes at five layout scales, light/dark contrast and corner coverage, theme persistence, dialog validation and 180 render fixtures. Off-screen exports can select a theme for the hidden clone without changing live preferences.
+
 ## [0.4.3] - 2026-11-05
 
 - Replaced Claude's stateless aggregate leases with per-session foreground/worker tracking. Final background completion and SessionEnd now clear the correct state; worker tool activity no longer renews the parent, and late completion events cannot resurrect ended work.

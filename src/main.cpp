@@ -350,6 +350,7 @@ bool RunDetectorGraceContractTests() {
 }
 
 int RunSelfTests(const std::wstring& snapshot_directory) {
+    if (!RunManualHoursDialogTests()) { return 68; }
     if (!RunClaudeLifecycleSelfTests()) { return 67; }
     if (!RunSettingsSelfTests()) { return 66; }
     if (!RunWakeSessionSelfTests()) {
@@ -527,8 +528,10 @@ int HandleUtilityCommand(const CommandLine& command_line) {
     if (command_line.Has(L"--export-ui-screenshots")) {
         const std::wstring directory = command_line.ValueAfter(L"--export-ui-screenshots");
         if (directory.empty() || directory != SanitizeMessageField(directory, 2000)) { return 2; }
+        const auto theme = command_line.ValueAfter(L"--capture-theme");
+        if (command_line.Has(L"--capture-theme") && theme != L"system" && theme != L"light" && theme != L"dark") { return 2; }
         if (!EnsureBackgroundInstance()) { return 4; }
-        return SendIpcMessage(L"CAPTURE_UI\t" + directory, 20000) ? 0 : 5;
+        return SendIpcMessage(L"CAPTURE_UI\t" + directory + (theme.empty() ? L"" : L"\t" + theme), 20000) ? 0 : 5;
     }
     if (command_line.Has(L"--release")) {
         const std::wstring id = command_line.ValueAfter(L"--id");
