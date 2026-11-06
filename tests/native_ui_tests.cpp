@@ -14,6 +14,7 @@ namespace {
 
 constexpr int kReasons = 92, kManualStart = 73, kManualStop = 74;
 constexpr int kModeFirst = 300, kScreen = 400, kStartup = 401, kNotifications = 402;
+constexpr int kReleaseDelay = 460, kReleaseLabel = 461, kReleaseHint = 462, kStatusReport = 422;
 
 LRESULT CALLBACK FixtureProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     auto* controls = reinterpret_cast<DashboardControls*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -31,7 +32,10 @@ bool TextFits(HWND window) {
     HGDIOBJ previous = SelectObject(dc, reinterpret_cast<HFONT>(SendMessageW(window, WM_GETFONT, 0, 0)));
     SIZE extent{}; GetTextExtentPoint32W(dc, label, lstrlenW(label), &extent);
     SelectObject(dc, previous); ReleaseDC(window, dc);
-    return extent.cx <= bounds.right && extent.cy <= bounds.bottom;
+    const bool fits = extent.cx <= bounds.right && extent.cy <= bounds.bottom;
+    if (!fits) { std::fprintf(stderr, "Text fit failed: control=%d extent=%ldx%ld bounds=%ldx%ld\n",
+        GetDlgCtrlID(window), extent.cx, extent.cy, bounds.right, bounds.bottom); }
+    return fits;
 }
 
 std::wstring WindowText(HWND window) {
@@ -160,7 +164,7 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             CHECK(GetDlgItem(parent, 13) == nullptr && GetDlgItem(parent, 10) == nullptr && GetDlgItem(parent, 11) == nullptr);
             CHECK(TabCtrl_GetItemCount(controls.TabWindow()) == 3);
             CHECK((GetWindowLongPtrW(controls.TabWindow(), GWL_STYLE) & TCS_OWNERDRAWFIXED) == 0);
-            for (int id : {kManualStart, kManualStop, 420, 421}) {
+            for (int id : {kManualStart, kManualStop, 420, 421, kStatusReport}) {
                 CHECK((GetWindowLongPtrW(GetDlgItem(parent, id), GWL_STYLE) & BS_TYPEMASK) == BS_PUSHBUTTON);
             }
             for (int index = 0; index < 5; ++index) {
@@ -173,6 +177,55 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                     CHECK(controls.ReadProviderChange(MAKEWPARAM(kModeFirst + index, CBN_SELCHANGE), &provider, &mode));
                     CHECK(mode == (selection == 0 ? DetectionMode::Tasks : selection == 1 ? DetectionMode::Open : DetectionMode::Off));
                 }
+            }
+            CHECK(controls.ActionForCommand(MAKEWPARAM(kStatusReport, BN_CLICKED)) == UiAction::SaveStatusReport);
+            CHECK(controls.ActionWindow(UiAction::SaveStatusReport) == GetDlgItem(parent, kStatusReport));
+            {
+                HWND release = GetDlgItem(parent, kReleaseDelay);
+                CHECK(release != nullptr && SendMessageW(release, CB_GETCOUNT, 0, 0) == 6);
+                constexpr DWORD values[] = {30, 60, 180, 300, 600, 1800};
+                DWORD seconds = 999;
+                for (int selected = 0; selected < 6; ++selected) {
+                    SendMessageW(release, CB_SETCURSEL, selected, 0);
+                    CHECK(controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, CBN_SELCHANGE), &seconds));
+                    CHECK(seconds == values[selected]);
+                }
+                CHECK(!controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, BN_CLICKED), &seconds));
+                CHECK(!controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, CBN_SELCHANGE), nullptr));
+                SendMessageW(release, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+                CHECK(!controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, CBN_SELCHANGE), &seconds));
+                SendMessageW(release, CB_SETCURSEL, 0, 0);
+                for (LPARAM invalid : {29, 1801}) {
+                    SendMessageW(release, CB_SETITEMDATA, 0, invalid);
+                    CHECK(!controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, CBN_SELCHANGE), &seconds));
+                }
+                SendMessageW(release, CB_SETITEMDATA, 0, 30);
+                DashboardState policy_state; policy_state.settings.appearance = appearance;
+                for (DWORD custom : {90u, 77u, 1799u}) {
+                    policy_state.settings.activity_grace_seconds = custom;
+                    controls.Update(policy_state); controls.Update(policy_state);
+                    CHECK(SendMessageW(release, CB_GETCOUNT, 0, 0) == 7);
+                    CHECK(SendMessageW(release, CB_GETCURSEL, 0, 0) == 6);
+                    CHECK(controls.ReadReleaseDelayChange(MAKEWPARAM(kReleaseDelay, CBN_SELCHANGE), &seconds) && seconds == custom);
+                }
+                policy_state.settings.activity_grace_seconds = 180;
+                controls.Update(policy_state);
+                CHECK(SendMessageW(release, CB_GETCOUNT, 0, 0) == 6 && SendMessageW(release, CB_GETCURSEL, 0, 0) == 2);
+                policy_state.settings.claude_integration_expected = true;
+                policy_state.settings.claude_hook_seen = false;
+                controls.Update(policy_state);
+                CHECK(WindowText(GetDlgItem(parent, 321)).find(L"Awaiting first hook") == 0);
+                policy_state.settings.claude_hook_seen = true;
+                controls.Update(policy_state);
+                CHECK(WindowText(GetDlgItem(parent, 321)) == L"Watching for active tasks");
+                policy_state.settings.claude_hook_seen = false;
+                Latch work; work.id = L"health:work"; work.provider = Provider::ClaudeCode; work.kind = LatchKind::Hook;
+                work.label = L"Claude Code task"; policy_state.latches.push_back(work);
+                controls.Update(policy_state);
+                CHECK(WindowText(GetDlgItem(parent, 321)) == L"Activity detected");
+                policy_state.latches.clear(); policy_state.settings.claude_mode = DetectionMode::Open;
+                controls.Update(policy_state);
+                CHECK(WindowText(GetDlgItem(parent, 321)) == L"Waiting for app to open");
             }
             HWND reasons = GetDlgItem(parent, kReasons);
             CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (LVS_OWNERDRAWFIXED | LVS_NOCOLUMNHEADER)) == 0);
@@ -280,7 +333,7 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 (std::min(Luminance(color), Luminance(palette.background)) + .05); };
             CHECK(contrast(palette.text) >= 4.5 && contrast(palette.muted) >= 4.5);
             if (appearance == Appearance::Dark && !WindowsHighContrast()) {
-                for (int id : {1000, 12, kManualStart, kManualStop, kScreen, kStartup, kNotifications, 450}) {
+                for (int id : {1000, 12, kManualStart, kManualStop, kScreen, kStartup, kNotifications, 450, kReleaseDelay, kStatusReport}) {
                     CHECK(DarkSurface(GetDlgItem(parent, id)));
                 }
                 EnableWindow(GetDlgItem(parent, kManualStop), FALSE);
@@ -316,6 +369,27 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 controls.Layout();
                 for (DashboardPage page : {DashboardPage::Overview, DashboardPage::Agents, DashboardPage::Settings}) {
                     controls.SelectPage(page); CHECK(controls.ValidateLayout());
+                    if (page == DashboardPage::Agents) {
+                        for (int index = 0; index < 5; ++index) {
+                            CHECK(TextFits(GetDlgItem(parent, 310 + index)) && TextFits(GetDlgItem(parent, 320 + index)));
+                        }
+                        CHECK(TextFits(GetDlgItem(parent, 100)) && TextFits(GetDlgItem(parent, 101)));
+                        CHECK(TextFits(GetDlgItem(parent, kReleaseLabel)) && TextFits(GetDlgItem(parent, kReleaseHint)));
+                        auto pending_hook = state;
+                        pending_hook.latches.clear();
+                        pending_hook.settings.claude_integration_expected = true;
+                        pending_hook.settings.claude_hook_seen = false;
+                        controls.Update(pending_hook);
+                        CHECK(WindowText(GetDlgItem(parent, 321)).find(L"Awaiting first hook") == 0);
+                        CHECK(TextFits(GetDlgItem(parent, 321)));
+                        controls.Update(state);
+                        RECT first{}, selector{};
+                        GetWindowRect(GetDlgItem(parent, 310), &first);
+                        GetWindowRect(GetDlgItem(parent, kReleaseDelay), &selector);
+                        CHECK(selector.bottom <= first.top);
+                    } else if (page == DashboardPage::Settings) {
+                        for (int id : {420, 421, kStatusReport}) { CHECK(TextFits(GetDlgItem(parent, id))); }
+                    }
                 }
                 controls.SelectPage(DashboardPage::Overview);
                 CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & WS_HSCROLL) == 0);
@@ -351,6 +425,11 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 }
             }
             state.manual_active = false; state.active = false; state.latches.clear(); controls.Update(state);
+            state.display_request_accepted = false; state.display_request_error = ERROR_ACCESS_DENIED;
+            controls.Update(state);
+            CHECK(WindowText(GetDlgItem(parent, 40)) == L"Sleep protection needs attention");
+            state.display_request_accepted = true; state.display_request_error = ERROR_SUCCESS;
+            controls.Update(state);
             CHECK(ListView_GetItemCount(reasons) == 0 && !IsWindowEnabled(GetDlgItem(parent, kManualStop)));
             CHECK((GetWindowLongPtrW(GetDlgItem(parent, 95), GWL_STYLE) & WS_VISIBLE) != 0);
             state.active = state.manual_active = true;

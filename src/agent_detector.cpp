@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cstdio>
 #include <cwchar>
 #include <cwctype>
 #include <filesystem>
@@ -23,8 +25,96 @@ constexpr ULONGLONG kFileTimeTicksPerSecond = 10'000'000;
 constexpr ULONGLONG kCodexProcessStartTolerance = 5 * kFileTimeTicksPerSecond;
 constexpr std::streamoff kCodexReadBlockBytes = 64 * 1024;
 constexpr std::streamoff kCodexReadOverlapBytes = 256;
-constexpr std::string_view kCodexTaskStarted = R"("type":"event_msg","payload":{"type":"task_started")";
-constexpr std::string_view kCodexTaskComplete = R"("type":"event_msg","payload":{"type":"task_complete")";
+
+void SkipJsonSpace(std::string_view json, std::size_t* offset) {
+    while (*offset < json.size() && std::isspace(static_cast<unsigned char>(json[*offset]))) { ++*offset; }
+}
+
+bool SkipJsonValue(std::string_view json, std::size_t* offset, unsigned int depth = 0) {
+    SkipJsonSpace(json, offset);
+    if (*offset >= json.size() || depth > 64) { return false; }
+    const char first = json[(*offset)++];
+    if (first == '"') {
+        while (*offset < json.size()) {
+            const char ch = json[(*offset)++];
+            if (ch == '"') { return true; }
+            if (static_cast<unsigned char>(ch) < 32) { return false; }
+            if (ch == '\\') {
+                if (*offset >= json.size()) { return false; }
+                ++*offset;
+            }
+        }
+        return false;
+    }
+    if (first == '{' || first == '[') {
+        const char end = first == '{' ? '}' : ']';
+        SkipJsonSpace(json, offset);
+        if (*offset < json.size() && json[*offset] == end) { ++*offset; return true; }
+        for (;;) {
+            if (first == '{') {
+                SkipJsonSpace(json, offset);
+                if (*offset >= json.size() || json[*offset] != '"' || !SkipJsonValue(json, offset, depth + 1)) { return false; }
+                SkipJsonSpace(json, offset);
+                if (*offset >= json.size() || json[(*offset)++] != ':') { return false; }
+            }
+            if (!SkipJsonValue(json, offset, depth + 1)) { return false; }
+            SkipJsonSpace(json, offset);
+            if (*offset >= json.size()) { return false; }
+            const char next = json[(*offset)++];
+            if (next == end) { return true; }
+            if (next != ',') { return false; }
+        }
+    }
+    const std::size_t start = *offset - 1;
+    while (*offset < json.size() && json[*offset] != ',' && json[*offset] != ']' && json[*offset] != '}' &&
+           !std::isspace(static_cast<unsigned char>(json[*offset]))) { ++*offset; }
+    const auto token = json.substr(start, *offset - start);
+    return token == "true" || token == "false" || token == "null" ||
+        (!token.empty() && (token.front() == '-' || std::isdigit(static_cast<unsigned char>(token.front()))));
+}
+
+// Inspect direct metadata members, not strings or nested tool-input objects.
+// Return the value's start without requiring its whole value to fit in a read
+// block: lifecycle payloads may contain a large final message after their type.
+std::string_view DirectJsonValue(std::string_view json, std::string_view field) {
+    std::size_t offset = 0;
+    SkipJsonSpace(json, &offset);
+    if (offset >= json.size() || json[offset++] != '{') { return {}; }
+    for (;;) {
+        SkipJsonSpace(json, &offset);
+        const std::size_t key_start = offset;
+        if (offset >= json.size() || json[offset] != '"' || !SkipJsonValue(json, &offset)) { return {}; }
+        const auto key = json.substr(key_start, offset - key_start);
+        SkipJsonSpace(json, &offset);
+        if (offset >= json.size() || json[offset++] != ':') { return {}; }
+        SkipJsonSpace(json, &offset);
+        if (key.size() == field.size() + 2 && key.substr(1, field.size()) == field) {
+            return json.substr(offset);
+        }
+        if (!SkipJsonValue(json, &offset)) { return {}; }
+        SkipJsonSpace(json, &offset);
+        if (offset >= json.size() || json[offset++] != ',') { return {}; }
+    }
+}
+
+std::string_view DirectJsonString(std::string_view json, std::string_view field) {
+    const auto value = DirectJsonValue(json, field);
+    std::size_t length = 0;
+    if (value.empty() || value.front() != '"' || !SkipJsonValue(value, &length)) { return {}; }
+    return value.substr(1, length - 2);
+}
+
+CodexSessionLifecycle CodexLifecycleRecord(std::string_view record) {
+    if (DirectJsonString(record, "type") != "event_msg") { return CodexSessionLifecycle::Unknown; }
+    const auto type = DirectJsonString(DirectJsonValue(record, "payload"), "type");
+    // Codex protocol keeps task_* wire names with turn_* aliases. Explicit
+    // interruption ends the turn too; it need not carry a turn_id.
+    if (type == "task_started" || type == "turn_started") { return CodexSessionLifecycle::Active; }
+    if (type == "task_complete" || type == "turn_complete" || type == "turn_aborted") {
+        return CodexSessionLifecycle::Inactive;
+    }
+    return CodexSessionLifecycle::Unknown;
+}
 
 struct ProcessEntry {
     DWORD pid{0};
@@ -291,10 +381,24 @@ CodexSessionLifecycle ReadLatestCodexSessionLifecycle(const std::filesystem::pat
         const std::streamoff read_length = read_end - block_start;
         std::string block(static_cast<std::size_t>(read_length), '\0');
         stream.clear();
+        bool starts_at_record = block_start == 0;
+        if (block_start > 0) {
+            stream.seekg(block_start - 1, std::ios::beg);
+            char preceding = 0;
+            if (!stream.get(preceding)) { return CodexSessionLifecycle::Unknown; }
+            starts_at_record = preceding == '\n';
+        }
         stream.seekg(block_start, std::ios::beg);
         stream.read(block.data(), read_length);
         block.resize(static_cast<std::size_t>(stream.gcount()));
-        const CodexSessionLifecycle lifecycle = LatestCodexSessionLifecycle(block);
+        std::string_view records(block);
+        if (!starts_at_record) {
+            // The block may begin inside nested JSON or message content. Only
+            // the following newline establishes another top-level record.
+            const auto newline = records.find('\n');
+            records = newline == std::string_view::npos ? std::string_view{} : records.substr(newline + 1);
+        }
+        const CodexSessionLifecycle lifecycle = LatestCodexSessionLifecycle(records);
         if (lifecycle != CodexSessionLifecycle::Unknown) {
             return lifecycle;
         }
@@ -336,16 +440,18 @@ void ApplyDetectionGrace(DetectionResult* result, ULONGLONG now, DWORD grace_sec
 }
 
 CodexSessionLifecycle LatestCodexSessionLifecycle(std::string_view json_lines) {
-    const std::size_t started = json_lines.rfind(kCodexTaskStarted);
-    const std::size_t completed = json_lines.rfind(kCodexTaskComplete);
-    if (started == std::string_view::npos && completed == std::string_view::npos) {
-        return CodexSessionLifecycle::Unknown;
+    // Rollouts are JSONL. Inspect newest records first and stop at the latest
+    // authoritative lifecycle marker, including explicit user interruption.
+    std::size_t end = json_lines.size();
+    while (end > 0) {
+        const std::size_t newline = json_lines.rfind('\n', end - 1);
+        const std::size_t start = newline == std::string_view::npos ? 0 : newline + 1;
+        const auto lifecycle = CodexLifecycleRecord(json_lines.substr(start, end - start));
+        if (lifecycle != CodexSessionLifecycle::Unknown) { return lifecycle; }
+        if (newline == std::string_view::npos) { break; }
+        end = newline;
     }
-    if (completed == std::string_view::npos ||
-        (started != std::string_view::npos && started > completed)) {
-        return CodexSessionLifecycle::Active;
-    }
-    return CodexSessionLifecycle::Inactive;
+    return CodexSessionLifecycle::Unknown;
 }
 
 ProcessClassification ClassifyAgentProcess(
@@ -610,6 +716,29 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
 }
 
 bool RunAgentDetectorSelfTests() {
+    struct LifecycleCase { std::string_view json; CodexSessionLifecycle expected; };
+    constexpr LifecycleCase lifecycle_cases[] = {
+        {R"({"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}})", CodexSessionLifecycle::Inactive},
+        {R"({"type":"event_msg","payload":{"type":"turn_started"}}
+{"type":"event_msg","payload":{"type":"turn_complete","error":{"message":"failed"}}})", CodexSessionLifecycle::Inactive},
+        {R"({"type":"event_msg","payload":{"type":"turn_aborted"}}
+{"type":"event_msg","payload":{"type":"task_started"}})", CodexSessionLifecycle::Active},
+        {R"({"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"turn_aborted"}}
+{"type":"event_msg","payload":{"type":"turn_started"}})", CodexSessionLifecycle::Active},
+        {R"( { "payload" : { "reason" : "interrupted", "type" : "turn_aborted" }, "type" : "event_msg" } )", CodexSessionLifecycle::Inactive},
+        {R"({"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"response_item","payload":{"type":"message","text":"escaped \"type\":\"event_msg\",\"payload\":{\"type\":\"turn_aborted\"}"}})", CodexSessionLifecycle::Active},
+        {R"({"type":"response_item","payload":{"type":"tool_call","input":{"type":"event_msg","payload":{"type":"task_started"}}}})", CodexSessionLifecycle::Unknown},
+        {R"({"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"user_message","text":"turn_aborted"}})", CodexSessionLifecycle::Active},
+    };
+    for (const auto& test : lifecycle_cases) {
+        if (LatestCodexSessionLifecycle(test.json) != test.expected) {
+            std::fprintf(stderr, "Codex lifecycle record regression failed\n"); return false;
+        }
+    }
     const auto make_process = [](DWORD pid, DWORD parent, const wchar_t* name, const wchar_t* path) {
         ProcessEntry process;
         process.pid = pid;
@@ -702,8 +831,70 @@ bool RunAgentDetectorSelfTests() {
         if (scan(7001) != 0 || scan(7002) != 0) { throw std::runtime_error("Codex final completion"); }
         append(worker, true);
         if (scan(13000) != 1) { throw std::runtime_error("Codex resumed worker"); }
-        if (detector.ScanCodexSessionDirectory(13001, 0, root.wstring()) != 0) {
+        {
+            std::ofstream stream(worker, std::ios::binary | std::ios::app);
+            stream << R"({ "type" : "event_msg", "payload" : { "type" : "turn_aborted", "reason" : "interrupted" } })" << '\n';
+        }
+        if (scan(13001) != 0 || scan(13002) != 0) { throw std::runtime_error("Codex cancelled worker release"); }
+        {
+            std::ofstream stream(worker, std::ios::binary | std::ios::app);
+            stream << R"({"type":"event_msg","payload":{"type":"turn_started"}})" << '\n';
+        }
+        if (scan(19000) != 1) { throw std::runtime_error("Codex lifecycle alias resume"); }
+        if (detector.ScanCodexSessionDirectory(19001, 0, root.wstring()) != 0) {
             throw std::runtime_error("Codex process generation reset");
+        }
+        // Completion metadata precedes a final message larger than one reverse
+        // read block. Do not require the entire body to classify its header.
+        const auto large_terminal = root / L"large-terminal.jsonl";
+        {
+            std::ofstream stream(large_terminal, std::ios::binary);
+            stream << R"({"type":"event_msg","payload":{"type":"task_started"}})" << '\n'
+                   << R"({"type":"event_msg","payload":{"type":"task_complete","last_agent_message":")"
+                   << std::string(100000, 'x') << R"("}})" << '\n';
+        }
+        if (ReadLatestCodexSessionLifecycle(large_terminal) != CodexSessionLifecycle::Inactive) {
+            throw std::runtime_error("Codex large terminal record");
+        }
+        // A reverse-read boundary must not turn a nested tool-input object into
+        // a top-level event. Place the fake start exactly at the last block cut.
+        const auto nested_boundary = root / L"nested-boundary.jsonl";
+        std::string boundary_data =
+            R"({"type":"event_msg","payload":{"type":"task_started"}})" "\n"
+            R"({"type":"event_msg","payload":{"type":"task_complete"}})" "\n"
+            R"({"type":"response_item","payload":{"type":"tool_call","input":)";
+        const std::size_t nested_offset = boundary_data.size();
+        const std::string fake_prefix = R"({"type":"event_msg","payload":{"type":"task_started"},"padding":")";
+        const std::string fake_suffix = "\"}}}\n";
+        boundary_data += fake_prefix;
+        boundary_data.append(static_cast<std::size_t>(kCodexReadBlockBytes) - fake_prefix.size() - fake_suffix.size(), 'x');
+        boundary_data += fake_suffix;
+        if (boundary_data.size() - static_cast<std::size_t>(kCodexReadBlockBytes) != nested_offset) {
+            throw std::runtime_error("Codex nested boundary fixture alignment");
+        }
+        {
+            std::ofstream stream(nested_boundary, std::ios::binary);
+            stream << boundary_data;
+        }
+        if (ReadLatestCodexSessionLifecycle(nested_boundary) != CodexSessionLifecycle::Inactive) {
+            throw std::runtime_error("Codex nested read boundary");
+        }
+        // Conversely, retain a genuine record whose first byte lands on the
+        // cut. Its metadata is deliberately beyond the preceding block overlap.
+        const auto exact_record = root / L"exact-record-boundary.jsonl";
+        std::string terminal_prefix = R"({"type":"event_msg","padding":")";
+        terminal_prefix.append(300, 'x');
+        terminal_prefix += R"(","payload":{"type":"task_complete","last_agent_message":")";
+        const std::string terminal_suffix = "\"}}\n";
+        std::string terminal_record = terminal_prefix;
+        terminal_record.append(static_cast<std::size_t>(kCodexReadBlockBytes) - terminal_prefix.size() - terminal_suffix.size(), 'x');
+        terminal_record += terminal_suffix;
+        {
+            std::ofstream stream(exact_record, std::ios::binary);
+            stream << R"({"type":"event_msg","payload":{"type":"task_started"}})" << '\n' << terminal_record;
+        }
+        if (ReadLatestCodexSessionLifecycle(exact_record) != CodexSessionLifecycle::Inactive) {
+            throw std::runtime_error("Codex real record at read boundary");
         }
     } catch (...) {
         std::filesystem::remove_all(root, error);

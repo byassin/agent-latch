@@ -1,5 +1,11 @@
 # Privacy
 
+## Local status reports
+
+Version 0.6.0 adds an explicitly requested JSON export with version/time, preferences, provider modes and aggregate counts, manual status and actual power-request flags/errors. It excludes user labels/details, session/worker IDs, owner PIDs, usernames, paths, prompts/responses and raw logs. Exports remain at the chosen location and are never automatically uploaded; review aggregate usage/preferences before sharing. CLI inspection does not auto-start the app or acquire a latch. Report logging records only success/failure. User-chosen reports are not deleted on uninstall. See [schema and behavior](STATUS-REPORT.md).
+
+## Local-only defaults
+
 AgentLatch is local-only software.
 
 It does not include analytics, advertising, telemetry, crash upload, an account system, a network server, or an auto-updater. It does not interpret, store, display, or transmit prompts, responses, source files, terminal output, clipboard data, browser content, or credentials.

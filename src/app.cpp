@@ -1,4 +1,5 @@
 #include "app.h"
+#include <commdlg.h>
 
 #include "ipc.h"
 #include "dashboard_capture.h"
@@ -239,7 +240,11 @@ AgentLatchApp::~AgentLatchApp() {
 }
 
 bool AgentLatchApp::Initialize(bool show_window) {
-    settings_.Load();
+    if (!settings_.Load()) {
+        diagnostics_.Write(L"initialization_failed", L"component=settings");
+        if (show_window) { MessageBoxW(nullptr, L"AgentLatch could not read its settings. Monitoring was not started. Check Windows permissions and try again.", L"AgentLatch", MB_OK | MB_ICONERROR); }
+        return false;
+    }
     manual_.Restore(settings_.manual_keep_awake, settings_.manual_end_utc_milliseconds,
                     GetTickCount64(), UtcMilliseconds());
     if (settings_.manual_keep_awake && !manual_.Active()) {
@@ -311,7 +316,11 @@ bool AgentLatchApp::Initialize(bool show_window) {
 
     taskbar_created_message_ = RegisterWindowMessageW(L"TaskbarCreated");
     AddTrayIcon();
-    SetTimer(window_, kRefreshTimer, kRefreshMilliseconds, nullptr);
+    if (SetTimer(window_, kRefreshTimer, kRefreshMilliseconds, nullptr) == 0) {
+        diagnostics_.Write(L"initialization_failed", L"component=refresh_timer error=" + std::to_wstring(GetLastError()));
+        if (show_window) { MessageBoxW(window_, L"AgentLatch could not start its monitoring timer. Monitoring was not started; try launching it again.", L"AgentLatch", MB_OK | MB_ICONERROR); }
+        return false;
+    }
     Tick(true);
 
     if (show_window) {
@@ -381,10 +390,10 @@ DashboardState AgentLatchApp::DashboardSnapshot() const {
     state.active = latches_.IsActive();
     state.system_request_accepted = power_request_.IsAvailable() &&
         power_request_.LastSystemError() == ERROR_SUCCESS &&
-        (!state.active || power_request_.IsSystemRequired());
+        (state.active == power_request_.IsSystemRequired());
     state.system_request_error = power_request_.LastSystemError();
-    state.display_request_accepted = !state.active || !settings_.keep_display_on ||
-        (power_request_.IsDisplayRequired() && power_request_.LastDisplayError() == ERROR_SUCCESS);
+    state.display_request_accepted = power_request_.LastDisplayError() == ERROR_SUCCESS &&
+        ((state.active && settings_.keep_display_on) == power_request_.IsDisplayRequired());
     state.display_request_error = power_request_.LastDisplayError();
     state.keep_display_on = settings_.keep_display_on;
     state.start_with_windows = IsStartWithWindowsEnabled();
@@ -393,6 +402,16 @@ DashboardState AgentLatchApp::DashboardSnapshot() const {
     state.now = GetTickCount64();
     state.latches = latches_.Snapshot();
     state.settings = settings_;
+    return state;
+}
+
+StatusReportState AgentLatchApp::StatusSnapshot() const {
+    StatusReportState state;
+    state.dashboard = DashboardSnapshot();
+    state.request_available = power_request_.IsAvailable();
+    state.system_request_set = power_request_.IsSystemRequired();
+    state.display_request_set = power_request_.IsDisplayRequired();
+    state.captured_utc_ms = UtcMilliseconds();
     return state;
 }
 
@@ -591,7 +610,8 @@ void AgentLatchApp::ReconcilePowerState() {
                                   power_request_.IsSystemRequired() && system_error == ERROR_SUCCESS;
     const bool display_confirmed = !active || !settings_.keep_display_on ||
                                    (power_request_.IsDisplayRequired() && display_error == ERROR_SUCCESS);
-    protection_failed_ = active && !system_confirmed;
+    protection_failed_ = active ? !system_confirmed :
+        power_request_.IsSystemRequired() || power_request_.IsDisplayRequired();
 
     std::wostringstream power_detail;
     power_detail << L"active=" << (active ? 1 : 0)
@@ -609,7 +629,7 @@ void AgentLatchApp::ReconcilePowerState() {
     }
 
     if (protection_failed_ && !protection_failure_alerted_) {
-        ShowProtectionFailureNotification(system_error);
+        ShowProtectionFailureNotification(system_error != ERROR_SUCCESS ? system_error : display_error);
         protection_failure_alerted_ = true;
     } else if (!protection_failed_) {
         protection_failure_alerted_ = false;
@@ -619,7 +639,7 @@ void AgentLatchApp::ReconcilePowerState() {
         transition_state_initialized_ = true;
     } else if (last_active_state_ != active) {
         last_active_state_ = active;
-        if (!active || !protection_failed_) {
+        if (!protection_failed_) {
             ShowTransitionNotification(active);
         }
     }
@@ -629,6 +649,11 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
     const std::vector<std::wstring> fields = SplitFields(message);
     if (fields.empty()) {
         return false;
+    }
+    if (fields[0] == L"EXPORT_STATUS" && fields.size() == 2) {
+        const bool saved = WriteStatusReport(StatusSnapshot(), fields[1]);
+        diagnostics_.Write(L"status_report_export", saved ? L"success=1" : L"success=0");
+        return saved;
     }
     if (fields[0] == L"CLAUDE2") {
         ClaudeEvent event;
@@ -755,14 +780,25 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
     switch (action) {
         case UiAction::ToggleDisplay:
             settings_.keep_display_on = !settings_.keep_display_on;
-            settings_.Save();
+            if (!settings_.Save()) {
+                settings_.keep_display_on = !settings_.keep_display_on;
+                diagnostics_.Write(L"settings_save_failed", L"setting=display");
+                MessageBoxW(window_, L"Windows could not save the screen preference. The previous value is still selected.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+            }
             break;
         case UiAction::ToggleStartup:
-            SetStartWithWindows(!IsStartWithWindowsEnabled(), GetExecutablePath());
+            if (!SetStartWithWindows(!IsStartWithWindowsEnabled(), GetExecutablePath())) {
+                diagnostics_.Write(L"settings_save_failed", L"setting=startup");
+                MessageBoxW(window_, L"Windows could not change the sign-in preference. Check its current state and try again.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+            }
             break;
         case UiAction::ToggleNotifications:
             settings_.notifications = !settings_.notifications;
-            settings_.Save();
+            if (!settings_.Save()) {
+                settings_.notifications = !settings_.notifications;
+                diagnostics_.Write(L"settings_save_failed", L"setting=notifications");
+                MessageBoxW(window_, L"Windows could not save the notification preference. The previous value is still selected.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+            }
             break;
         case UiAction::SetupHooks:
             LaunchHookSetup();
@@ -779,6 +815,9 @@ void AgentLatchApp::ExecuteAction(UiAction action) {
         case UiAction::OpenDiagnostics:
             OpenDiagnostics();
             break;
+        case UiAction::SaveStatusReport:
+            SaveStatusReport();
+            break;
         case UiAction::None:
         case UiAction::ApplyManual: // Validated and handled by WM_COMMAND before dispatch.
             return;
@@ -793,7 +832,7 @@ void AgentLatchApp::ShowTrayMenu(POINT location) {
     }
 
     AppendMenuW(menu, MF_STRING | MF_DEFAULT, kMenuOpen, L"Open AgentLatch");
-    std::wstring status = latches_.IsActive()
+    std::wstring status = protection_failed_ ? L"Sleep protection needs attention" : latches_.IsActive()
                               ? L"Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                               : L"Windows can sleep";
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, status.c_str());
@@ -908,10 +947,11 @@ void AgentLatchApp::ShowProtectionFailureNotification(DWORD error) {
     tray_icon_.uFlags = NIF_GUID | NIF_INFO;
     lstrcpynW(
         tray_icon_.szInfoTitle,
-        L"AgentLatch sleep protection failed",
+        L"AgentLatch power request needs attention",
         static_cast<int>(std::size(tray_icon_.szInfoTitle)));
-    const std::wstring message =
-        L"Active agent work was detected, but Windows rejected the keep-awake request (error " +
+    const std::wstring message = (latches_.IsActive() ?
+        L"Keep-awake protection was requested, but Windows could not enable it (error " :
+        L"Windows could not release a power request; the PC or display may stay awake (error ") +
         std::to_wstring(error) + L"). AgentLatch will keep retrying.";
     lstrcpynW(tray_icon_.szInfo, message.c_str(), static_cast<int>(std::size(tray_icon_.szInfo)));
     tray_icon_.dwInfoFlags = NIIF_WARNING | NIIF_NOSOUND;
@@ -929,6 +969,21 @@ void AgentLatchApp::OpenDiagnostics() {
     if (reinterpret_cast<INT_PTR>(result) <= 32) {
         MessageBoxW(window_, L"Windows could not open the diagnostic history.", L"AgentLatch", MB_OK | MB_ICONERROR);
     }
+}
+
+void AgentLatchApp::SaveStatusReport() {
+    wchar_t filename[2048] = L"AgentLatch-status.json";
+    OPENFILENAMEW dialog{}; dialog.lStructSize = sizeof(dialog); dialog.hwndOwner = window_;
+    dialog.lpstrFilter = L"JSON status report (*.json)\0*.json\0\0";
+    dialog.lpstrFile = filename; dialog.nMaxFile = static_cast<DWORD>(std::size(filename));
+    dialog.lpstrDefExt = L"json"; dialog.lpstrTitle = L"Save privacy-safe status report";
+    dialog.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR | OFN_EXPLORER;
+    if (!GetSaveFileNameW(&dialog)) { return; }
+    const bool saved = WriteStatusReport(StatusSnapshot(), filename, true);
+    diagnostics_.Write(L"status_report_export", saved ? L"success=1" : L"success=0");
+    MessageBoxW(window_, saved ? L"Status report saved. It contains aggregate settings, counts and power-request state, not chats or file paths. Review it before sharing." :
+        L"The report could not be saved. Choose a .json filename in an existing writable folder.",
+        L"AgentLatch", MB_OK | (saved ? MB_ICONINFORMATION : MB_ICONWARNING));
 }
 
 HICON AgentLatchApp::CreateStateIcon(COLORREF background, COLORREF foreground) const {
@@ -990,6 +1045,7 @@ HICON AgentLatchApp::CreateStateIcon(COLORREF background, COLORREF foreground) c
 }
 
 bool AgentLatchApp::AddTrayIcon() {
+    next_tray_retry_at_ = GetTickCount64() + 5000;
     ZeroMemory(&tray_icon_, sizeof(tray_icon_));
     tray_icon_.cbSize = sizeof(tray_icon_);
     tray_icon_.hWnd = window_;
@@ -999,7 +1055,8 @@ bool AgentLatchApp::AddTrayIcon() {
     tray_icon_.hIcon = idle_icon_;
     tray_icon_.guidItem = kTrayGuid;
     lstrcpynW(tray_icon_.szTip, L"AgentLatch · Windows can sleep", static_cast<int>(std::size(tray_icon_.szTip)));
-    tray_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) != FALSE;
+    tray_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) != FALSE ||
+        Shell_NotifyIconW(NIM_MODIFY, &tray_icon_) != FALSE;
     if (tray_added_) {
         tray_icon_.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &tray_icon_);
@@ -1016,7 +1073,13 @@ void AgentLatchApp::RemoveTrayIcon() {
 
 void AgentLatchApp::UpdateTrayIcon() {
     if (!tray_added_) {
-        return;
+        if (GetTickCount64() < next_tray_retry_at_ || !AddTrayIcon()) {
+            if (!tray_failure_logged_) { diagnostics_.Write(L"tray_icon_unavailable", L"retry_seconds=5"); tray_failure_logged_ = true; }
+            return;
+        }
+    }
+    if (tray_failure_logged_) {
+        diagnostics_.Write(L"tray_icon_restored"); tray_failure_logged_ = false;
     }
     const bool manual = latches_.HasKind(LatchKind::Manual) || latches_.HasKind(LatchKind::Timer);
     tray_icon_.uFlags = NIF_ICON | NIF_TIP | NIF_GUID | NIF_SHOWTIP;
@@ -1029,7 +1092,9 @@ void AgentLatchApp::UpdateTrayIcon() {
                                  ? L"AgentLatch · Latched · " + std::to_wstring(latches_.ActiveInstanceCount()) + L" active"
                                  : L"AgentLatch · Windows can sleep";
     lstrcpynW(tray_icon_.szTip, tip.c_str(), static_cast<int>(std::size(tray_icon_.szTip)));
-    Shell_NotifyIconW(NIM_MODIFY, &tray_icon_);
+    if (!Shell_NotifyIconW(NIM_MODIFY, &tray_icon_)) {
+        tray_added_ = false; next_tray_retry_at_ = GetTickCount64() + 5000;
+    }
 }
 
 LRESULT CALLBACK AgentLatchApp::WindowProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -1071,6 +1136,17 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             return 1;
         case WM_COMMAND: {
             if (LOWORD(wparam) == IDCANCEL) { ShowWindow(window_, SW_HIDE); return 0; }
+            DWORD release_delay = 0;
+            if (controls_.ReadReleaseDelayChange(wparam, &release_delay)) {
+                const DWORD previous = settings_.activity_grace_seconds;
+                settings_.activity_grace_seconds = release_delay;
+                if (!settings_.Save()) {
+                    settings_.activity_grace_seconds = previous;
+                    diagnostics_.Write(L"settings_save_failed", L"setting=release_delay");
+                    MessageBoxW(window_, L"Windows could not save the release delay. The previous value is still selected.", L"AgentLatch", MB_OK | MB_ICONWARNING);
+                }
+                Tick(true); return 0;
+            }
             unsigned int manual_hours = 0;
             if (controls_.ReadManualCommand(wparam, &manual_hours)) {
                 StartManualSession(manual_hours); return 0;

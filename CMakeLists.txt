@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.5.2 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.6.0 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -36,6 +36,9 @@ add_executable(AgentLatch WIN32
     tests/claude_lifecycle_tests.cpp
     tests/native_ui_tests.cpp
     src/diagnostics.cpp
+    src/status_report.cpp
+    tests/status_report_tests.cpp
+    tests/power_request_tests.cpp
     src/watchdog.cpp
     src/wake_sessions.cpp
     src/dashboard_capture.cpp
@@ -58,6 +61,7 @@ target_compile_definitions(AgentLatch PRIVATE
 target_link_libraries(AgentLatch PRIVATE
     advapi32
     comctl32
+    comdlg32
     dwmapi
     gdi32
     kernel32

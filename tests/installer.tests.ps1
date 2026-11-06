@@ -65,6 +65,8 @@ try {
         'docs\INTEGRATIONS.md',
         'docs\PRIVACY.md'
         'docs\UI-UPDATE.md'
+        'docs\STATUS-REPORT.md'
+        'docs\REVIEW.md'
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $relativePath) -PathType Leaf)) {
             throw "Setup did not install $relativePath."

@@ -25,8 +25,12 @@ constexpr int kEmptyTitle = 95, kEmptyHint = 96;
 constexpr int kAgentsTitle = 100, kAgentsHint = 101;
 constexpr int kModeFirst = 300, kProviderName = 310, kProviderDetail = 320;
 constexpr int kScreen = 400, kStartup = 401, kNotifications = 402;
-constexpr int kSettingHint = 410, kDiagnostics = 420, kRepair = 421, kSettingsTitle = 430;
+constexpr int kSettingHint = 410, kDiagnostics = 420, kRepair = 421, kStatusReport = 422, kSettingsTitle = 430;
 constexpr int kAppearance = 450, kAppearanceLabel = 451;
+constexpr int kReleaseDelay = 460, kReleaseLabel = 461, kReleaseHint = 462;
+constexpr std::array<DWORD, 6> kReleaseSeconds = {30, 60, 180, 300, 600, 1800};
+constexpr std::array<const wchar_t*, 6> kReleaseLabels = {
+    L"30 seconds", L"1 minute", L"3 minutes (default)", L"5 minutes", L"10 minutes", L"30 minutes"};
 constexpr std::array<Provider, 5> kProviders = {
     Provider::Codex, Provider::ClaudeCode, Provider::Cursor, Provider::OpenCode, Provider::GeminiCli};
 constexpr std::array<const wchar_t*, 5> kProviderLabels = {
@@ -41,7 +45,8 @@ HFONT Font(UINT dpi, int points, int weight) {
 
 COLORREF StatusColor(const DashboardState& state) {
     const auto palette = ResolveDashboardPalette(state.settings.appearance, WindowsHighContrast());
-    return !state.system_request_accepted ? palette.warning : state.active ? palette.accent : palette.text;
+    return !state.system_request_accepted || (!state.active && !state.display_request_accepted) ?
+        palette.warning : state.active ? palette.accent : palette.text;
 }
 
 int ModeIndex(DetectionMode mode) {
@@ -64,6 +69,10 @@ std::wstring ProviderDetail(Provider provider, const DashboardState& state) {
             }
         }
         return L"Finishing protection";
+    }
+    if (mode == DetectionMode::Tasks && provider == Provider::ClaudeCode &&
+        state.settings.claude_integration_expected && !state.settings.claude_hook_seen) {
+        return L"Awaiting first hook · restart agent session";
     }
     return mode == DetectionMode::Open ? L"Waiting for app to open" : L"Watching for active tasks";
 }
@@ -259,6 +268,17 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
         SendMessageW(combo, CB_SETMINVISIBLE, 3, 0);
         AccessibleName(combo, std::wstring(kProviderLabels[index]) + L" tracking mode");
     }
+    Text(L"Release delay", kReleaseLabel, agents);
+    Text(L"Activity only; hooks/manual timers unchanged.", kReleaseHint, agents);
+    HWND release = Add(WC_COMBOBOXW, L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+        kReleaseDelay, agents);
+    if (release == nullptr) { return false; }
+    for (std::size_t index = 0; index < kReleaseSeconds.size(); ++index) {
+        const LRESULT item = SendMessageW(release, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kReleaseLabels[index]));
+        SendMessageW(release, CB_SETITEMDATA, static_cast<WPARAM>(item), kReleaseSeconds[index]);
+    }
+    SendMessageW(release, CB_SETMINVISIBLE, 7, 0);
+    AccessibleName(release, L"Release delay after detected task activity");
     const int settings = static_cast<int>(DashboardPage::Settings);
     Text(L"Preferences", kSettingsTitle, settings);
     Text(L"Appearance", kAppearanceLabel, settings);
@@ -281,6 +301,7 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     }
     Add(L"BUTTON", L"Diagnostic history", WS_TABSTOP | BS_PUSHBUTTON, kDiagnostics, settings);
     Add(L"BUTTON", L"Repair integrations…", WS_TABSTOP | BS_PUSHBUTTON, kRepair, settings);
+    Add(L"BUTTON", L"Save status report…", WS_TABSTOP | BS_PUSHBUTTON, kStatusReport, settings);
     for (const auto& control : controls_) {
         wchar_t name[64]{}; GetClassNameW(control.window, name, 64);
         if (control.window == tabs_ || control.window == reasons_ || control.window == footer_ ||
@@ -320,11 +341,12 @@ void DashboardControls::SetDpi(UINT dpi) {
                  control.id == kManualStatus || (control.id >= kProviderName && control.id < kProviderName + 5)) {
             font = heading_font_;
         } else if (control.id == kStatusDetail || control.id == kReasonsCount || control.id == kManualHint ||
-                   control.id == kAgentsHint || control.id == kEmptyHint ||
+                   control.id == kAgentsHint || control.id == kEmptyHint || control.id == kReleaseHint ||
                    (control.id >= kProviderDetail && control.id < kProviderDetail + 5) ||
                    (control.id >= kSettingHint && control.id < kSettingHint + 3)) { font = small_font_; }
         SendMessageW(control.window, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        if ((control.id >= kModeFirst && control.id < kModeFirst + 5) || control.id == kAppearance || control.id == kManualDuration) {
+        if ((control.id >= kModeFirst && control.id < kModeFirst + 5) || control.id == kAppearance ||
+            control.id == kManualDuration || control.id == kReleaseDelay) {
             SendMessageW(control.window, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), Scale(22));
             SendMessageW(control.window, CB_SETITEMHEIGHT, 0, Scale(22));
         }
@@ -415,13 +437,16 @@ void DashboardControls::Layout() {
     Place(kManualStart, right - Scale(214), manual_top + Scale(50), Scale(126), Scale(30));
     Place(kManualStop, right - Scale(78), manual_top + Scale(50), Scale(62), Scale(30));
     Place(kManualHint, left + Scale(16), manual_top + Scale(87), width - Scale(32), Scale(22));
-    Place(kAgentsTitle, left, top, width, Scale(24));
-    Place(kAgentsHint, left, top + Scale(27), width, Scale(22));
+    Place(kAgentsTitle, left, top, width - Scale(188), Scale(24));
+    Place(kAgentsHint, left, top + Scale(24), width - Scale(188), Scale(17));
+    Place(kReleaseLabel, right - Scale(176), top, Scale(176), Scale(19));
+    Place(kReleaseDelay, right - Scale(176), top + Scale(22), Scale(176), Scale(220));
+    Place(kReleaseHint, left, top + Scale(42), width - Scale(188), Scale(17));
     for (int index = 0; index < 5; ++index) {
-        const int row = top + Scale(55 + index * 40);
-        Place(kProviderName + index, left, row, width - Scale(180), Scale(21));
-        Place(kProviderDetail + index, left, row + Scale(22), width - Scale(180), Scale(18));
-        Place(kModeFirst + index, right - Scale(156), row + Scale(5), Scale(156), Scale(150));
+        const int row = top + Scale(66 + index * 37);
+        Place(kProviderName + index, left, row, width - Scale(180), Scale(19));
+        Place(kProviderDetail + index, left, row + Scale(19), width - Scale(180), Scale(17));
+        Place(kModeFirst + index, right - Scale(156), row + Scale(3), Scale(156), Scale(150));
     }
     Place(kSettingsTitle, left, top, width, Scale(24));
     Place(kAppearanceLabel, left, top + Scale(36), Scale(160), Scale(26));
@@ -433,6 +458,7 @@ void DashboardControls::Layout() {
     }
     Place(kDiagnostics, left, bottom - Scale(31), Scale(144), Scale(30));
     Place(kRepair, left + Scale(156), bottom - Scale(31), Scale(164), Scale(30));
+    Place(kStatusReport, left + Scale(332), bottom - Scale(31), Scale(160), Scale(30));
     SetWindowPos(Find(kManualGroup), HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     SetWindowPos(tabs_, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     for (int id : {kEmptyTitle, kEmptyHint}) {
@@ -493,17 +519,20 @@ void DashboardControls::Update(const DashboardState& state) {
     }
     const bool grace_only = !state_.latches.empty() && std::all_of(state_.latches.begin(), state_.latches.end(),
         [](const auto& latch) { return latch.in_grace_period; });
-    TextValue(kStatusTitle, !state_.system_request_accepted ? L"Sleep protection needs attention" :
+    TextValue(kStatusTitle, !state_.system_request_accepted || (!state_.active && !state_.display_request_accepted) ? L"Sleep protection needs attention" :
         state_.active ? (grace_only ? L"Finishing protection" : L"Sleep protection is on") : L"Ready when your agents are");
     std::wstring detail;
     if (!state_.system_request_accepted) {
         detail = L"Windows rejected the request (error " + std::to_wstring(state_.system_request_error) + L"). Retrying.";
+    } else if (!state_.active && !state_.display_request_accepted) {
+        detail = L"Windows could not release the display request (error " + std::to_wstring(state_.display_request_error) + L"). Retrying.";
     } else if (state_.active) {
         detail = state_.keep_display_on ? L"Your PC and display are staying awake." : L"Your PC stays awake. The display may turn off.";
         if (!state_.display_request_accepted) { detail += L" Display request failed."; }
     } else { detail = L"Normal sleep settings apply. Agent monitoring is on."; }
     TextValue(kStatusDetail, detail);
     UpdateManualControls();
+    UpdateReleaseDelay();
     TextValue(kEmptyHint, state_.manual_active ? L"Manual override is keeping your PC awake." : L"New work appears here automatically.");
     for (std::size_t index = 0; index < kProviders.size(); ++index) {
         HWND combo = Find(kModeFirst + static_cast<int>(index));
@@ -546,6 +575,32 @@ void DashboardControls::UpdateReasonRows() {
     TextValue(kReasonsCount, std::to_wstring(activity_.size()) + (activity_.size() == 1 ? L" source" : L" sources"));
 }
 
+void DashboardControls::UpdateReleaseDelay() {
+    HWND combo = Find(kReleaseDelay);
+    if (SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0)) { return; }
+    const DWORD seconds = std::clamp<DWORD>(state_.settings.activity_grace_seconds, 30, 1800);
+    int selected = -1;
+    for (std::size_t index = 0; index < kReleaseSeconds.size(); ++index) {
+        if (kReleaseSeconds[index] == seconds) { selected = static_cast<int>(index); break; }
+    }
+    const int custom = static_cast<int>(kReleaseSeconds.size());
+    if (selected >= 0) {
+        if (SendMessageW(combo, CB_GETCOUNT, 0, 0) > custom) { SendMessageW(combo, CB_DELETESTRING, custom, 0); }
+    } else {
+        if (SendMessageW(combo, CB_GETCOUNT, 0, 0) > custom &&
+            SendMessageW(combo, CB_GETITEMDATA, custom, 0) != seconds) {
+            SendMessageW(combo, CB_DELETESTRING, custom, 0);
+        }
+        if (SendMessageW(combo, CB_GETCOUNT, 0, 0) == custom) {
+            const std::wstring label = std::to_wstring(seconds) + L" sec (custom)";
+            const LRESULT item = SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            SendMessageW(combo, CB_SETITEMDATA, static_cast<WPARAM>(item), seconds);
+        }
+        selected = custom;
+    }
+    if (SendMessageW(combo, CB_GETCURSEL, 0, 0) != selected) { SendMessageW(combo, CB_SETCURSEL, selected, 0); }
+}
+
 bool DashboardControls::HandleNotify(const NMHDR* notification, LRESULT* result) {
     if (result != nullptr) { *result = 0; }
     if (notification != nullptr && notification->hwndFrom == reasons_ &&
@@ -571,6 +626,7 @@ UiAction DashboardControls::ActionForCommand(WPARAM command) const {
         case kNotifications: return UiAction::ToggleNotifications;
         case kDiagnostics: return UiAction::OpenDiagnostics;
         case kRepair: return UiAction::SetupHooks;
+        case kStatusReport: return UiAction::SaveStatusReport;
         default: return UiAction::None;
     }
 }
@@ -664,7 +720,7 @@ HBRUSH DashboardControls::ControlColor(HDC dc, HWND control) const {
     for (const auto& entry : controls_) { if (entry.window == control) { page = entry.page >= 0; break; } }
     if (id == kEmptyTitle || id == kEmptyHint || (id >= kModeFirst && id < kModeFirst + 5)) { page = false; }
     SetTextColor(dc, id == kStatusTitle ? StatusColor(state_) :
-        id == kStatusDetail || id == kManualHint || id == kReasonsCount || id == kAgentsHint || id == kEmptyHint ||
+        id == kStatusDetail || id == kManualHint || id == kReasonsCount || id == kAgentsHint || id == kEmptyHint || id == kReleaseHint ||
         (id >= kProviderDetail && id < kProviderDetail + 5) || (id >= kSettingHint && id < kSettingHint + 3) ?
         palette_.muted : palette_.text);
     SetBkColor(dc, page ? page_color_ : palette_.background);
@@ -675,6 +731,14 @@ bool DashboardControls::ReadAppearanceChange(WPARAM command, Appearance* appeara
     const auto selected = SendMessageW(Find(kAppearance), CB_GETCURSEL, 0, 0);
     if (selected < 0 || selected > 2) { return false; }
     *appearance = static_cast<Appearance>(selected); return true;
+}
+bool DashboardControls::ReadReleaseDelayChange(WPARAM command, DWORD* seconds) const {
+    if (LOWORD(command) != kReleaseDelay || HIWORD(command) != CBN_SELCHANGE || seconds == nullptr) { return false; }
+    const LRESULT selection = SendMessageW(Find(kReleaseDelay), CB_GETCURSEL, 0, 0);
+    if (selection == CB_ERR) { return false; }
+    const LRESULT value = SendMessageW(Find(kReleaseDelay), CB_GETITEMDATA, static_cast<WPARAM>(selection), 0);
+    if (value < 30 || value > 1800) { return false; }
+    *seconds = static_cast<DWORD>(value); return true;
 }
 bool DashboardControls::TranslateKey(const MSG& message) {
     if (message.message == WM_KEYDOWN && message.wParam == VK_TAB && (GetKeyState(VK_CONTROL) & 0x8000)) {
@@ -689,6 +753,7 @@ HWND DashboardControls::ActionWindow(UiAction action) const {
         case UiAction::StopManual: return Find(kManualStop);
         case UiAction::SetupHooks: return Find(kRepair);
         case UiAction::OpenDiagnostics: return Find(kDiagnostics);
+        case UiAction::SaveStatusReport: return Find(kStatusReport);
         default: return nullptr;
     }
 }

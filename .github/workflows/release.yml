@@ -36,6 +36,7 @@ jobs:
             throw "AgentLatch self-test failed with exit code $($process.ExitCode)."
           }
           .\tests\version.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe -ExpectedVersion '${{ steps.version.outputs.version }}'
+          .\tests\status-report.tests.ps1 -ReportPath (Join-Path $renderDirectory 'status-report.json')
           .\tests\manual-cli.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\manual-process.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
           .\tests\claude-process.tests.ps1 -AgentLatchPath .\build-x64\Release\AgentLatch.exe
@@ -69,7 +70,17 @@ jobs:
           .\scripts\build-installer.ps1 -Executable .\build-arm64\Release\AgentLatch.exe -Architecture ARM64 -Version '${{ steps.version.outputs.version }}'
           .\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Architecture x64 -Version '${{ steps.version.outputs.version }}' -OutputDirectory .\dist-test -TestBuild
           .\tests\installer.tests.ps1 -InstallerPath ".\dist-test\AgentLatch-Setup-${{ steps.version.outputs.version }}-x64-test.exe"
+          .\tests\installer-upgrade.tests.ps1 -InstallerPath ".\dist\AgentLatch-Setup-${{ steps.version.outputs.version }}-x64.exe"
           Get-ChildItem .\dist\*.sha256 | ForEach-Object { Get-Content $_ } | Set-Content .\dist\SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload installer-upgrade failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AgentLatch-release-upgrade-failure
+          path: ${{ runner.temp }}/AgentLatch-upgrade-failure/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7

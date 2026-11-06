@@ -1,8 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "0.5.2"
+  #define AppVersion "0.6.0"
 #endif
 #ifndef VersionInfoVersion
-  #define VersionInfoVersion "0.5.2.0"
+  #define VersionInfoVersion "0.6.0.0"
 #endif
 #ifndef Architecture
   #define Architecture "x64"
@@ -89,6 +89,8 @@ Source: "{#RepoRoot}\docs\INTEGRATIONS.md"; DestDir: "{app}\docs"; Flags: ignore
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\INTERFACE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\UI-UPDATE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\STATUS-REPORT.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\REVIEW.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AgentLatch"; Filename: "{app}\AgentLatch.exe"; Check: NotTestMode
@@ -119,6 +121,7 @@ var
   ExistingInstall: Boolean;
   ExistingStartupPreference: Boolean;
   StartupTaskSeeded: Boolean;
+  ResumeAfterSilentUpgrade: Boolean;
 
 function InitializeSetup(): Boolean;
 begin
@@ -130,6 +133,7 @@ begin
     'Software\Microsoft\Windows\CurrentVersion\Run',
     'AgentLatch');
   StartupTaskSeeded := False;
+  ResumeAfterSilentUpgrade := False;
   Result := True;
 end;
 
@@ -204,10 +208,13 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
+  Attempt: Integer;
+  WasRunning: Boolean;
 begin
   Result := '';
   if not ShouldStopAgentLatch() then
     Exit;
+  WasRunning := FindWindowByClassName('AgentLatch.ControlWindow.v1') <> 0;
   ExtractTemporaryFile('AgentLatch-bootstrap.exe');
   if not Exec(
     ExpandConstant('{tmp}\AgentLatch-bootstrap.exe'),
@@ -215,7 +222,42 @@ begin
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
-    ExitCode) then
+    ExitCode) or (ExitCode <> 0) then
+  begin
     Result := 'AgentLatch could not stop the currently running copy. Close AgentLatch and try Setup again.';
+    Exit;
+  end;
+  for Attempt := 0 to 19 do
+  begin
+    if FindWindowByClassName('AgentLatch.ControlWindow.v1') = 0 then
+      Break;
+    Sleep(100);
+  end;
+  if FindWindowByClassName('AgentLatch.ControlWindow.v1') <> 0 then
+  begin
+    Result := 'AgentLatch is still running. Close AgentLatch and try Setup again.';
+    Exit;
+  end;
+  { Keep this armed across PrepareToInstall retries after a successful stop.
+    Test/no-stop/cold installs must never create a background monitor. }
+  if WasRunning and ExistingInstall and WizardSilent() and NotTestMode() then
+    ResumeAfterSilentUpgrade := True;
   Sleep(300);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ExitCode: Integer;
+begin
+  { ssDone is reached only after successful installation, never on cancel or
+    failure. Interactive setup retains its existing Launch checkbox. }
+  if (CurStep = ssDone) and ResumeAfterSilentUpgrade then
+  begin
+    ResumeAfterSilentUpgrade := False;
+    if Exec(ExpandConstant('{app}\AgentLatch.exe'), '--background',
+      ExpandConstant('{app}'), SW_HIDE, ewNoWait, ExitCode) then
+      Log('Resumed AgentLatch in background after a successful silent upgrade.')
+    else
+      Log(Format('Could not resume AgentLatch after silent upgrade (error %d).', [ExitCode]));
+  end;
 end;

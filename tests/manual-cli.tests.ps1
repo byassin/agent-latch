@@ -16,7 +16,20 @@ $cases = @(
     '--keep-awake --stop-keep-awake',
     '--export-ui-screenshots',
     '--export-ui-screenshots unused --capture-theme',
-    '--export-ui-screenshots unused --capture-theme invalid'
+    '--export-ui-screenshots unused --capture-theme invalid',
+    '--export-status',
+    '--export-status relative.json',
+    '--export-status C:\test.txt',
+    '--export-status C:\test:stream.json',
+    '--release',
+    '--release --id',
+    ('--release --id ' + ('x' * 192)),
+    '--acquire --id',
+    '--unknown',
+    '--keep-awake --indefinite --quit',
+    '--self-test --quit',
+    '--release --id one --id two',
+    '--acquire --label --quit --id'
 )
 foreach ($arguments in $cases) {
     $process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -Wait -PassThru

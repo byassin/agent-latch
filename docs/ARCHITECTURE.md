@@ -1,5 +1,7 @@
 # Architecture
 
+Architecture for **AgentLatch 0.6.0**; see [review scope and limitations](REVIEW.md). Local tests use isolated fixtures rather than modifying the installed user's instance.
+
 AgentLatch is one native Win32 executable running in two lightweight modes: the tray application and a blocking companion watchdog. It has no service, web runtime, administrator requirement, or elevated component.
 
 ```text
@@ -35,6 +37,8 @@ Main process <──── wait/restart on abnormal exit ──── Watchdog p
 | `ExportDashboardScreenshots` | Renders one live state snapshot into hidden native controls and exports three PNGs without desktop capture or input. |
 
 ## Power semantics
+
+Handle creation is now retried at most every two seconds if `PowerCreateRequest` fails. API callbacks are injectable for deterministic tests only; production still calls native Windows functions. Recovery clears stale creation errors and immediately reconciles current system/display intent. Failed set/clear operations retain actual flags for retry, including release failures. Empty native error codes are normalized rather than presented as successful operations. Destruction never creates a missing handle.
 
 When the registry changes from zero to one active latch, AgentLatch sets `PowerRequestSystemRequired`. When the registry returns to zero, it clears that request. If **Keep display on** is enabled, it also sets `PowerRequestDisplayRequired` for the same active interval. Failed operations retain their desired/actual mismatch, so the two-second reconciliation cycle retries them. System and display errors are tracked independently.
 
@@ -114,7 +118,11 @@ Full-process Windows CI also drives the real background app through its CLI, ver
 
 ## Native tabbed interface
 
-The 0.5.2 interface prefers a 680 × 520 logical-pixel client, with a 600 × 460 minimum. It retains a fully resizable `WS_OVERLAPPEDWINDOW` frame. Windows owns the caption/buttons/system menu/non-client hit testing. Minimum frame size is adjusted for current DPI and window style. The official icon remains in the caption independently of the dynamic tray icon. A common-controls v6 manifest enables Windows visual styles, with explicit resource rebuild dependencies.
+The review adds a release-delay selector backed by the existing `ActivityGraceSeconds` setting, preserving the default/range and custom saved values. Its scope is detector activity grace, not lifecycle or manual/restart deadlines. A status-report action uses a native Save dialog; CLI `--export-status` delivers a read-only IPC request without auto-starting the application. Schema1 reports fixed provider keys/aggregate counts, preferences, manual time and actual power flags/errors; it never serializes latch identity, label/detail, process IDs, paths or conversation content. Exports use a sibling temporary file and final rename; CLI refuses replacement, while the GUI requires overwrite confirmation.
+
+Tray registration is retried on the normal tick with a five-second gate; repeated failures are not logged on every tick. Initialization now rejects unreadable settings or failed timer creation rather than pretending to monitor. Preference-save and startup/IPC delivery failures are surfaced. Silent successful production upgrades resume hidden only if monitoring was running before setup stopped it; the successful-completion hook never launches cold/stopped/test/no-stop installs. Automatic agent state remains memory-only across that restart, unlike saved manual protection.
+
+The interface prefers a 680 × 520 logical-pixel client, with a 600 × 460 minimum. It retains a fully resizable `WS_OVERLAPPEDWINDOW` frame. Windows owns the caption/buttons/system menu/non-client hit testing. Minimum frame size is adjusted for current DPI and window style. The official icon remains in the caption independently of the dynamic tray icon. A common-controls v6 manifest enables Windows visual styles, with explicit resource rebuild dependencies.
 
 All interaction controls are standard HWNDs: tabs, pushbuttons, dropdown-list ComboBoxes, auto-checkboxes, static labels, report ListView and status bar. Light mode uses native drawing; Dark uses public GDI/subclass painting for coherent control, header, scrollbar and status-bar surfaces, preserving default native input, focus, selection, dropdowns and accessibility. The Appearance combo uses standard owner-draw text callbacks in its native dropdown. There is no More button or duplicate in-content title. MSAA names identify provider dropdowns; IsDialogMessage handles Tab navigation and the message loop handles Ctrl+Tab. Custom-hours input has both themes and inline validation. No private dark-mode ordinals or new UI/runtime dependency are used.
 
