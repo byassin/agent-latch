@@ -173,7 +173,9 @@ try {
         }
         if (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath -Recurse -Force }
         if (Test-Path -LiteralPath $uninstallPath) { Remove-Item -LiteralPath $uninstallPath -Recurse -Force }
-        $startup = Get-ItemPropertyValue -LiteralPath $runPath -Name AgentLatch -ErrorAction SilentlyContinue
+        # Get-ItemPropertyValue can throw for an absent value even with
+        # SilentlyContinue on some PowerShell hosts. Absence is normal here.
+        $startup = (Get-ItemProperty -LiteralPath $runPath -ErrorAction SilentlyContinue).AgentLatch
         if ($startup -and $startup.Contains($testRoot)) { Remove-ItemProperty -LiteralPath $runPath -Name AgentLatch }
     }
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
