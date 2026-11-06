@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.6.0 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.6.1 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -26,6 +26,8 @@ add_executable(AgentLatch WIN32
     src/types.cpp
     src/win_util.cpp
     src/settings.cpp
+    src/startup_context.cpp
+    tests/startup_context_tests.cpp
     src/power_request.cpp
     src/latch_registry.cpp
     src/agent_detector.cpp

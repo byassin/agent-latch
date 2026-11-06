@@ -1,4 +1,6 @@
-# Local status reports — 0.6.0
+# Local status reports — 0.6.1
+
+The JSON export was introduced in 0.6.0; 0.6.1 retains schema 1 and the same privacy boundaries.
 
 Settings has **Save status report…**, using a native Save dialog. Choose a `.json` filename in an existing writable folder. The GUI asks before replacing an existing file. A sibling temporary file and final rename prevent a failed write from truncating the previous report. Cancel does nothing; no file is uploaded or opened automatically.
 

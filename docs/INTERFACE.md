@@ -1,6 +1,6 @@
 # Interface guide
 
-This guide describes **AgentLatch 0.6.0**. One-step manual Start, explicit On status and the read-only live activity list remain unchanged from 0.5.2. See the [manual/activity walkthrough](UI-UPDATE.md) and [review notes](REVIEW.md).
+This guide describes **AgentLatch 0.6.1**. One-step manual Start, explicit On status and the read-only live activity list remain unchanged from 0.5.2. Version 0.6.1 changes startup/settings reliability, not the control layout. See the [manual/activity walkthrough](UI-UPDATE.md) and [review notes](REVIEW.md).
 
 AgentLatch 0.5 uses Windows common controls: standard tabs, buttons, dropdowns, checkboxes, an activity table and a status bar. It remains a small Win32 tray utility, without a web runtime or an added UI framework. The images below render actual release controls off-screen with illustrative test activity.
 

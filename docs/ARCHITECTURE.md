@@ -1,6 +1,6 @@
 # Architecture
 
-Architecture for **AgentLatch 0.6.0**; see [review scope and limitations](REVIEW.md). Local tests use isolated fixtures rather than modifying the installed user's instance.
+Architecture for **AgentLatch 0.6.1**; see [review scope and limitations](REVIEW.md). Local tests use isolated fixtures rather than modifying the installed user's instance.
 
 AgentLatch is one native Win32 executable running in two lightweight modes: the tray application and a blocking companion watchdog. It has no service, web runtime, administrator requirement, or elevated component.
 
@@ -31,10 +31,23 @@ Main process <──── wait/restart on abnormal exit ──── Watchdog p
 | `PowerRequest` | Creates and reconciles Windows `PowerSetRequest` system/display requirements. |
 | `DiagnosticsLog` | Appends bounded, content-free protection and lifecycle events to a rotating local log. |
 | `Watchdog` | Waits without polling, restarts an abnormally terminated main process, and stops after three rapid failures. |
+| `StartupContext` | Normalizes monitor/watchdog launches, verifies the actual child is unpackaged before resuming it, and bounds packaged-parent relays. |
 | `AgentLatchApp` | Hosts the message loop, tray icon, single-instance IPC, settings, and reconciliation cycle. |
 | `DashboardRenderer` | Paints the compact DPI-aware visual shell and protection surfaces with native GDI. |
 | `DashboardControls` | Owns real Windows tabs, buttons, provider dropdowns, checkboxes, accessible labels, focus, and the complete reasons list. |
 | `ExportDashboardScreenshots` | Renders one live state snapshot into hidden native controls and exports three PNGs without desktop capture or input. |
+
+## Startup settings context
+
+The installed 0.6.0 monitor could be auto-started by a hook before the installer's final background launch. Its settings were read once; the later launch found the singleton and did not reload them. The observed mismatch disappeared after a normal-shell restart. The exact historical process context was not retained, so package inheritance is a hypothesis, not a proven reconstruction of that event.
+
+The 0.6.1 fix rejects ambiguous startup context instead of trusting the parent. Direct monitor startup checks package identity before taking the singleton or loading preferences. Hook auto-start, watchdog creation and watchdog restart share the native launcher. An unpackaged caller creates an identity-checked actual child; a packaged caller uses one short relay created with `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` / `PROCESS_CREATION_DESKTOP_APP_BREAKAWAY_ENABLE_PROCESS_TREE`. That policy governs the relay's children, so the actual child is also checked with `GetPackageFullName` while suspended. It resumes only for `APPMODEL_ERROR_NO_PACKAGE`. Unknown identity, failure, a still-packaged actual child or relay timeout returns failure; there is no fallback that silently loads the parent's private preferences and no recursive relay loop. Background roles stay hidden; a user-requested foreground launch retains ordinary window behavior.
+
+The relay never reads settings, claims the monitor mutex, handles a hook payload or creates a dashboard. Short-lived hook processes retain their payload and send it by existing IPC only after monitor readiness. The internal `--startup-check` probe exits after identity inspection; native self-tests use it instead of starting a monitor or touching production IPC.
+
+Settings remain in `HKCU\Software\AgentLatch`; there is no registry-path bypass or file migration. `Settings::Load` builds a fresh default snapshot and replaces the target only after the complete read succeeds. Explicit valid `Mode*` values win over legacy `Detect*`; missing/malformed preferences use defaults or the legacy flag, never stale in-memory modes. Real access/read failures reject the snapshot. `ManualSession` remains a volatile child with unchanged Windows-restart reset semantics. Content-free `settings_loaded` diagnostics record the unpackaged context and five numeric modes (0 Off, 1 Tasks, 2 Open), not package names or user identifiers.
+
+Microsoft documents both [private per-app HKCU writes](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes#registry) and [desktop-app child policy](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute). Injected inheritance tests and the real unpackaged child probe are not a real-MSIX integration qualification. Windows permissions/policy can still prevent startup; failure is surfaced rather than presenting the wrong saved modes as valid.
 
 ## Power semantics
 

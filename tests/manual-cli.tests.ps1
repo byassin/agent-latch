@@ -29,7 +29,14 @@ $cases = @(
     '--keep-awake --indefinite --quit',
     '--self-test --quit',
     '--release --id one --id two',
-    '--acquire --label --quit --id'
+    '--acquire --label --quit --id',
+    '--startup-relay --quit',
+    '--startup-relay --hook claude',
+    '--startup-relay --self-test',
+    '--startup-relay --export-status C:\unused.json',
+    '--startup-relay --startup-check --background',
+    '--startup-relay --watchdog --quit',
+    '--startup-relay --restart-attempt 2'
 )
 foreach ($arguments in $cases) {
     $process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -Wait -PassThru

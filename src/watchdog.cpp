@@ -1,11 +1,10 @@
 #include "watchdog.h"
 
 #include "diagnostics.h"
-#include "win_util.h"
+#include "startup_context.h"
 
 #include <sstream>
 #include <string>
-#include <vector>
 
 namespace agent_latch {
 namespace {
@@ -15,34 +14,7 @@ constexpr ULONGLONG kStableRuntimeMilliseconds = 60ULL * 1000ULL;
 constexpr DWORD kRestartDelayMilliseconds = 2000;
 
 bool LaunchProcess(const std::wstring& arguments) {
-    const std::wstring executable = GetExecutablePath();
-    if (executable.empty()) {
-        return false;
-    }
-    std::wstring command_line = L"\"" + executable + L"\" " + arguments;
-    std::vector<wchar_t> writable(command_line.begin(), command_line.end());
-    writable.push_back(L'\0');
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    const std::wstring directory = GetExecutableDirectory();
-    const BOOL created = CreateProcessW(
-        executable.c_str(),
-        writable.data(),
-        nullptr,
-        nullptr,
-        FALSE,
-        0,
-        nullptr,
-        directory.empty() ? nullptr : directory.c_str(),
-        &startup,
-        &process);
-    if (!created) {
-        return false;
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    return true;
+    return LaunchCanonicalProcess(arguments);
 }
 
 std::wstring RestartDetail(
