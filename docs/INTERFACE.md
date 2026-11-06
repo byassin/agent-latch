@@ -49,7 +49,7 @@ Each preference uses a standard Windows checkbox with a clear label and explanat
 
 ## Keyboard and tray behavior
 
-Use Tab/Shift+Tab between controls, Ctrl+Tab/Ctrl+Shift+Tab between pages, arrow keys on tabs/dropdowns/lists, Space for checkboxes, and Enter/Space for focused buttons. Closing the main window keeps monitoring in the tray; right-click the tray icon and choose **Exit** to end the process/power request, while preserving a manual choice only for later launch within the same Windows session.
+Use Tab/Shift+Tab between interactive controls, Ctrl+Tab/Ctrl+Shift+Tab between pages, arrow keys on tabs/dropdowns, Space for checkboxes, and Enter/Space for focused buttons. The read-only activity list is skipped by Tab; use its mouse wheel or scrollbar. Closing the main window keeps monitoring in the tray; right-click the tray icon and choose **Exit** to end the process/power request, while preserving a manual choice only for later launch within the same Windows session.
 
 The preferred client is 680 × 520 logical pixels, with a 600 × 460 minimum. Resize or maximize it using the native Windows frame. The activity list gains a normal vertical scrollbar when needed; the whole window does not become a scrolling page. Keyboard focus and hover/press/disabled states remain visible on interactive controls in both themes.
 
