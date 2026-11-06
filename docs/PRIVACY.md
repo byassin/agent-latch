@@ -24,6 +24,6 @@ AgentLatch keeps a bounded local diagnostic history at `%LOCALAPPDATA%\AgentLatc
 
 ## Optional UI exports
 
-`--export-ui-screenshots` saves three PNGs locally from the running app's current state. It renders only AgentLatch's own native controls in a hidden non-activating window; it does not capture the desktop, other apps, chats, or input. Exports can include current tracking settings and custom external-lease labels already visible in AgentLatch. Review those labels before sharing images. Export logging records success/failure, not paths or image content.
+`--export-ui-screenshots` saves three PNGs locally from the running app's current state. It renders only AgentLatch's own native controls in a hidden non-activating window; it does not capture the desktop, other apps, chats, or input. Its clone selects the first available source to show its details without changing the visible selection. Exports can include current tracking settings, source metadata and custom external-lease labels already available in AgentLatch. Review those labels/details before sharing images. Export logging records success/failure, not paths or image content.
 
 AgentLatch has no automatic upload. Captures remain wherever the user chooses to save them until explicitly shared by the user or a user-authorized workflow.

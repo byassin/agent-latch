@@ -81,7 +81,7 @@ void DashboardControls::PaintDarkControl(HWND window, HDC dc) const {
             wchar_t label[128]{}; HDITEMW item{}; item.mask = HDI_TEXT; item.pszText = label; item.cchTextMax = 128;
             Header_GetItem(window, index, &item); DrawLabel(dc, rect, label, palette_.text);
         }
-    } else if ((id >= 300 && id <= 304) || id == 450) {
+    } else if ((id >= 300 && id <= 304) || id == 450 || id == 75) {
         Fill(dc, bounds, palette_.surface);
         Border(dc, bounds, GetFocus() == window ? palette_.accent : palette_.border);
         COMBOBOXINFO info{}; info.cbSize = sizeof(info); GetComboBoxInfo(window, &info);

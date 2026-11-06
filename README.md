@@ -11,17 +11,17 @@ AgentLatch is a lightweight, open-source Windows tray app that prevents idle sle
 <p align="center">
   <img src="assets/dashboard.png" width="620" alt="AgentLatch Overview with activity-first layout and compact manual override">
 </p>
-<p align="center"><sub>Off-screen capture rendered from the running app's state—not a desktop screenshot or fabricated example.</sub></p>
+<p align="center"><sub>Native 0.5.1 UI rendered off-screen with illustrative activity. These are real controls with test data, not an overnight protection test.</sub></p>
 
 ## A compact Windows utility
 
 AgentLatch has three tabs, with protection status always visible:
 
-- **Overview:** a native activity table lists agent/custom protection sources, with normal keyboard navigation and scrolling. Manual protection has its own separate group.
+- **Overview:** select an activity row to see its signal, status and available details. The native table supports keyboard navigation and scrolling. Manual protection has a visible duration selector and Start/Apply/Stop controls in its own separate group.
 - **Agents:** select **Tasks only**, **While open**, or **Off** explicitly for each provider. These correspond to Tasks, Open, and Off mode in the technical documentation.
 - **Settings:** choose screen behavior, launch at sign-in, and notifications; open diagnostics or repair integrations when needed.
 
-AgentLatch 0.5 removes **More…** and duplicate in-content branding, uses a Windows-owned resizable title bar and native controls, and replaces custom row paging with an activity table. Its preferred client is 680 × 520 logical pixels. **Settings → Appearance** offers System, Light and Dark without changing Windows' theme. Dark mode includes controls, dropdowns, headers, scrollbars and the custom-hours dialog; high contrast takes priority. Use **Tab / Shift+Tab** between controls and **Ctrl+Tab / Ctrl+Shift+Tab** between pages. Closing leaves monitoring in the tray; right-click the tray icon and choose **Exit** to quit. See the [interface guide](docs/INTERFACE.md) for details and verification limits.
+AgentLatch 0.5 uses a Windows-owned resizable title bar and native controls, without a duplicate More menu or custom row paging. In **0.5.1**, Manual override is configured directly on Overview and the activity table has a useful details pane. Its preferred client is 680 × 620 logical pixels. **Settings → Appearance** offers System, Light and Dark without changing Windows' theme; high contrast takes priority. Use **Tab / Shift+Tab** between controls and **Ctrl+Tab / Ctrl+Shift+Tab** between pages. Closing leaves monitoring in the tray; right-click the tray icon and choose **Exit** to quit. See the [interface guide](docs/INTERFACE.md) and [manual/details walkthrough](docs/UI-UPDATE.md).
 
 <details>
 <summary>Agents and Settings screenshots</summary>
@@ -72,9 +72,9 @@ Detector activity is sampled every two seconds and retains a three-minute safety
 
 ## Manual keep-awake and overnight use
 
-On **Overview**, under **Manual override**, select **Keep awake…**, then **Until Windows restarts**, a quick duration (1, 2, 4, 8, 12, or 24 hours), or **Custom hours…** (1–168 whole hours). The same controls are available from the tray menu. The countdown is the actual manual session time remaining—not an estimate of agent completion.
+On **Overview**, under **Manual override**, choose **Until Windows restarts**, a quick duration (1, 2, 4, 8, 12, or 24 hours), or **Custom hours** and enter 1–168 whole hours. Click **Start**, or **Apply** to replace an active session. Choosing a duration alone does not change protection. The tray also has a quick-duration menu. The countdown is the actual manual session time remaining—not an estimate of agent completion.
 
-Manual protection stays active even if every agent closes or updates. **Change…** replaces the existing manual session; **Stop** cancels only manual protection, leaving agent monitoring and any other protection reasons running. Keeping the screen on remains an independent switch on **Settings**; it is not needed to keep the PC awake.
+Manual protection stays active even if every agent closes or updates. **Apply** replaces the existing manual session starting now; **Stop** cancels only manual protection, leaving agent monitoring and any other protection reasons running. Keeping the screen on remains an independent switch on **Settings**; it is not needed to keep the PC awake.
 
 **Restarting Windows clears manual override**, including any remaining timed session. You must enable it again after restarting. Automatic agent monitoring still starts normally if launch at sign-in is enabled.
 
@@ -147,6 +147,8 @@ The dashboard has three explicit system states:
 
 Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes agent/custom sources, not task totals: one row can contain several concurrent tasks. The built-in manual override is shown only in its separate group, not duplicated in the activity list. Custom requests remain visible, including external leases using the `manual` source key. The native table exposes every row through scrolling; unchanged refreshes preserve selection and scroll position.
 
+Select a row to read/copy its signal, status, instance count and available metadata in **Activity details**. The pane refreshes as that source changes and clears when it finishes. Aggregated rows do not expose individual task names or chat contents.
+
 Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, detector release reasons, restart-grace transitions, and manual-session starts/stops/expiry. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
 
 ### Screenshots without desktop control
@@ -173,7 +175,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.5.0
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.5.1
 ```
 
 ## Design principles

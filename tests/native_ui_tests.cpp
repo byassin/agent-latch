@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <uxtheme.h>
 #include <cmath>
+#include <thread>
 
 namespace agent_latch {
 namespace {
@@ -58,9 +59,65 @@ bool DarkSurface(HWND window) {
     SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc); return valid;
 }
 
+bool RepaintClippingContract() {
+    const std::wstring name = L"AgentLatchRepaintTest-" + std::to_wstring(GetCurrentProcessId());
+    HDESK desktop = CreateDesktopW(name.c_str(), nullptr, nullptr, 0,
+        DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS, nullptr);
+    if (desktop == nullptr) { std::fprintf(stderr, "Cannot create isolated repaint desktop: %lu\n", GetLastError()); return false; }
+    bool passed = false;
+    std::thread worker([&]() {
+        if (!SetThreadDesktop(desktop)) { return; }
+        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"Repaint fixture",
+            WS_POPUP | WS_CLIPCHILDREN, 0, 0, 680, 620, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (parent == nullptr) { return; }
+        {
+            DashboardControls controls;
+            passed = controls.Initialize(parent, 96);
+            // This desktop is never switched to. Exercise real WM_PAINT/DC
+            // clipping without showing anything on the user's input desktop.
+            ShowWindow(parent, SW_SHOWNOACTIVATE);
+            for (Appearance appearance : {Appearance::Dark, Appearance::Light}) {
+                DashboardState state; state.settings.appearance = appearance;
+                controls.Update(state);
+                for (int repeat = 0; repeat < 3; ++repeat) {
+                    SendMessageW(GetDlgItem(parent, 75), CB_SETCURSEL, repeat == 1 ? 7 : 0, 0);
+                    unsigned int hours = 0;
+                    controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+                    controls.SelectPage(DashboardPage::Settings);
+                    controls.SelectPage(DashboardPage::Overview);
+                    RedrawWindow(parent, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                    HWND group = GetDlgItem(parent, 69);
+                    HDC dc = GetDC(group);
+                    if (dc == nullptr || !PtVisible(dc, 2, 20)) { passed = false; }
+                    for (int id : {71, 72, 73, 74, 75, 76, 77}) {
+                        HWND child = GetDlgItem(parent, id);
+                        if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) { continue; }
+                        RECT rect{}; GetWindowRect(child, &rect);
+                        MapWindowPoints(nullptr, group, reinterpret_cast<POINT*>(&rect), 2);
+                        const bool protected_from_group = dc != nullptr &&
+                            !PtVisible(dc, (rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+                        if (!protected_from_group || !IsWindowVisible(child)) {
+                            std::fprintf(stderr, "Manual control %d can be overpainted by its group (theme=%d)\n", id, static_cast<int>(appearance));
+                            passed = false;
+                        }
+                    }
+                    if (dc != nullptr) { ReleaseDC(group, dc); }
+                    // Repainting just the container must not erase siblings.
+                    RedrawWindow(group, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+                }
+            }
+            DestroyWindow(parent);
+        }
+    });
+    worker.join();
+    CloseDesktop(desktop);
+    return passed;
+}
+
 }  // namespace
 
 bool RunDashboardContractTests(const std::wstring& output_directory) {
+    if (!RepaintClippingContract()) { return false; }
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "Native UI check failed at line %d, dpi=%u\n", __LINE__, dpi); return false; } } while (false)
     for (Appearance appearance : {Appearance::Light, Appearance::Dark}) {
     for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
@@ -102,8 +159,39 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             HWND reasons = GetDlgItem(parent, kReasons);
             CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (LVS_OWNERDRAWFIXED | LVS_NOCOLUMNHEADER)) == 0);
             CHECK(Header_GetItemCount(ListView_GetHeader(reasons)) == 3);
+            HWND duration = GetDlgItem(parent, 75), custom_hours = GetDlgItem(parent, 76);
+            CHECK(duration != nullptr && custom_hours != nullptr && GetDlgItem(parent, 93) != nullptr);
+            CHECK(SendMessageW(duration, CB_GETCOUNT, 0, 0) == 8);
+            CHECK((GetWindowLongPtrW(GetDlgItem(parent, 93), GWL_STYLE) & ES_READONLY) != 0);
+            constexpr unsigned int expected_hours[] = {0, 1, 2, 4, 8, 12, 24};
+            for (int preset = 0; preset < 7; ++preset) {
+                SendMessageW(duration, CB_SETCURSEL, preset, 0);
+                unsigned int hours = 999;
+                controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+                CHECK(!IsWindowEnabled(custom_hours));
+                CHECK(controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+                CHECK(hours == expected_hours[preset]);
+            }
+            SendMessageW(duration, CB_SETCURSEL, 7, 0);
+            unsigned int hours = 999;
+            controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
+            CHECK(IsWindowEnabled(custom_hours));
+            for (const auto* invalid : {L"", L"0", L"169", L"-1", L"2x"}) {
+                SetWindowTextW(custom_hours, invalid);
+                CHECK(!controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+                CHECK(hours == 999);
+            }
+            for (const auto* valid : {L"1", L"8", L"168"}) {
+                SetWindowTextW(custom_hours, valid);
+                CHECK(controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &hours));
+            }
+            SetWindowTextW(custom_hours, L"8");
+            SendMessageW(duration, CB_SETCURSEL, 0, 0);
+            controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &hours);
             auto state = Fixture(appearance);
             controls.Update(state);
+            CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 4); // Actual eight-hour session.
+            SendMessageW(duration, CB_SETCURSEL, 2, 0); // User's draft choice survives periodic refresh.
             CHECK(controls.IsDark() == (appearance == Appearance::Dark && !WindowsHighContrast()));
             const auto palette = ResolveDashboardPalette(appearance, WindowsHighContrast());
             const auto contrast = [&](COLORREF color) { return (std::max(Luminance(color), Luminance(palette.background)) + .05) /
@@ -155,7 +243,44 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 const int top = ListView_GetTopIndex(reasons);
                 controls.Update(state);
                 CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == 12 && ListView_GetTopIndex(reasons) == top);
+                NMHDR selected{reasons, kReasons, LVN_ITEMCHANGED};
+                CHECK(controls.HandleNotify(&selected));
+                if (appearance == Appearance::Dark && !WindowsHighContrast()) {
+                    NMLVCUSTOMDRAW drawing{};
+                    drawing.nmcd.hdr = {reasons, kReasons, NM_CUSTOMDRAW};
+                    drawing.nmcd.dwDrawStage = CDDS_PREPAINT;
+                    LRESULT result = 0;
+                    CHECK(controls.HandleNotify(&drawing.nmcd.hdr, &result) && result == CDRF_NOTIFYITEMDRAW);
+                    drawing.nmcd.dwDrawStage = CDDS_ITEMPREPAINT;
+                    drawing.nmcd.dwItemSpec = 12;
+                    drawing.nmcd.hdc = CreateCompatibleDC(nullptr);
+                    CHECK(controls.HandleNotify(&drawing.nmcd.hdr, &result) && result == CDRF_SKIPDEFAULT);
+                    DeleteDC(drawing.nmcd.hdc);
+                    CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == 12);
+                }
+                wchar_t details[2048]{}; GetWindowTextW(GetDlgItem(parent, 93), details, 2048);
+                CHECK(std::wstring(details).find(L"Agent task 12") != std::wstring::npos);
+                CHECK(std::wstring(details).find(L"Lifecycle event") != std::wstring::npos);
+                // Metadata updates keep the selection and refresh its details.
+                state.latches[12].detail = L"Background worker is active";
+                controls.Update(state);
+                GetWindowTextW(GetDlgItem(parent, 93), details, 2048);
+                CHECK(std::wstring(details).find(L"Background worker is active") != std::wstring::npos);
+                CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 2);
+                // Hidden fixture hit-tests ensure siblings do not intercept controls.
+                for (int id : {kManualStart, kManualStop, 75, 76, 92, 93}) {
+                    HWND child = GetDlgItem(parent, id); RECT rect{}; GetWindowRect(child, &rect);
+                    if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) { continue; }
+                    MapWindowPoints(nullptr, parent, reinterpret_cast<POINT*>(&rect), 2);
+                    POINT center{(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2};
+                    CHECK(ChildWindowFromPointEx(parent, center, CWP_SKIPINVISIBLE) == child);
+                }
             }
+            // Removing a selected row clears its details; no stale task remains.
+            state.latches.erase(state.latches.begin() + 12);
+            controls.Update(state);
+            wchar_t retired[2048]{}; GetWindowTextW(GetDlgItem(parent, 93), retired, 2048);
+            CHECK(std::wstring(retired).find(L"Agent task 12") == std::wstring::npos);
             for (int id : {kScreen, kStartup, kNotifications}) {
                 HWND checkbox = GetDlgItem(parent, id);
                 CHECK((GetWindowLongPtrW(checkbox, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX);
@@ -166,6 +291,8 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             }
             state.manual_active = false; state.active = false; state.latches.clear(); controls.Update(state);
             CHECK(ListView_GetItemCount(reasons) == 0 && !IsWindowEnabled(GetDlgItem(parent, kManualStop)));
+            wchar_t cleared_details[512]{}; GetWindowTextW(GetDlgItem(parent, 93), cleared_details, 512);
+            CHECK(std::wstring(cleared_details).find(L"Agent task 12") == std::wstring::npos);
             CHECK((GetWindowLongPtrW(GetDlgItem(parent, 95), GWL_STYLE) & WS_VISIBLE) != 0);
             state.active = state.manual_active = true;
             Latch manual; manual.id = L"manual:keep-awake"; manual.kind = LatchKind::Manual;

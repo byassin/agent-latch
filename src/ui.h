@@ -26,6 +26,7 @@ enum class UiAction {
     ToggleNotifications,
     SetupHooks,
     ManualMenu,
+    ApplyManual,
     StopManual,
     OpenDiagnostics,
 };
@@ -81,10 +82,11 @@ public:
     void Update(const DashboardState& state);
     DashboardPage Page() const { return page_; }
     void SelectPage(DashboardPage page);
-    bool HandleNotify(const NMHDR* notification);
+    bool HandleNotify(const NMHDR* notification, LRESULT* result = nullptr);
     UiAction ActionForCommand(WPARAM command) const;
     bool ReadProviderChange(WPARAM command, Provider* provider, DetectionMode* mode) const;
     bool ReadAppearanceChange(WPARAM command, Appearance* appearance) const;
+    bool ReadManualCommand(WPARAM command, unsigned int* hours);
     bool DrawItem(const DRAWITEMSTRUCT* item) const;
     bool MeasureItem(MEASUREITEMSTRUCT* item) const;
     HBRUSH ControlColor(HDC dc, HWND control) const;
@@ -105,6 +107,7 @@ private:
     void ApplyVisibility();
     void LayoutReasonColumns();
     void UpdateReasonRows();
+    void UpdateActivityDetails();
     void Place(int id, int x, int y, int width, int height);
     void PaintDarkControl(HWND window, HDC dc) const;
     void PaintDarkScrollbars(HWND window, HDC dc) const;
@@ -129,6 +132,8 @@ private:
     std::vector<Control> controls_;
     std::vector<Latch> activity_;
     std::vector<std::wstring> row_ids_;
+    bool updating_rows_{false};
+    bool manual_validation_error_{false};
 };
 
 COLORREF ProviderColor(Provider provider);

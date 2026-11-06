@@ -51,7 +51,11 @@ LRESULT CALLBACK CaptureProcedure(HWND window, UINT message, WPARAM wparam, LPAR
     if (context != nullptr) {
         if (message == WM_DRAWITEM && context->controls.DrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam))) { return TRUE; }
         if (message == WM_MEASUREITEM && context->controls.MeasureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lparam))) { return TRUE; }
-        if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
+        if (message == WM_NOTIFY) {
+            LRESULT result = 0;
+            if (context->controls.HandleNotify(reinterpret_cast<NMHDR*>(lparam), &result)) { return result; }
+        }
+        if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLOREDIT || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
             return reinterpret_cast<LRESULT>(context->controls.ControlColor(
                 reinterpret_cast<HDC>(wparam), reinterpret_cast<HWND>(lparam)));
         }
@@ -110,7 +114,15 @@ bool ExportDashboardScreenshots(const DashboardState& state, const std::wstring&
         nullptr, nullptr, window_class.hInstance, &context);
     if (window == nullptr) { return false; }
     bool success = context.controls.Initialize(window, dpi);
-    if (success) { context.controls.Update(state); }
+    if (success) {
+        context.controls.Update(state);
+        // Select one real source in the hidden clone to illustrate its details.
+        // Neither selection nor page changes touch the visible dashboard.
+        HWND activity = GetDlgItem(window, 92);
+        if (ListView_GetItemCount(activity) > 0) {
+            ListView_SetItemState(activity, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        }
+    }
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
