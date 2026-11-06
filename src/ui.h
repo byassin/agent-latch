@@ -107,6 +107,8 @@ private:
     void ApplyVisibility();
     void LayoutReasonColumns();
     void UpdateReasonRows();
+    bool ReadManualDuration(unsigned int* hours) const;
+    void UpdateManualControls();
     void Place(int id, int x, int y, int width, int height);
     void PaintDarkControl(HWND window, HDC dc) const;
     void PaintDarkScrollbars(HWND window, HDC dc) const;
@@ -131,7 +133,11 @@ private:
     std::vector<Control> controls_;
     std::vector<Latch> activity_;
     std::vector<std::wstring> row_ids_;
-    bool manual_validation_error_{false};
+    enum class ManualFeedback { None, Started, Updated };
+    unsigned int manual_applied_hours_{0};
+    bool manual_syncing_{false};
+    ManualFeedback manual_pending_{ManualFeedback::None};
+    ManualFeedback manual_feedback_{ManualFeedback::None};
 };
 
 COLORREF ProviderColor(Provider provider);

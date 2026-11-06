@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "dashboard_capture.h"
 #include "win_util.h"
+#include "wake_sessions.h"
 
 #include <array>
 #include <cstdio>
@@ -31,6 +32,10 @@ bool TextFits(HWND window) {
     SIZE extent{}; GetTextExtentPoint32W(dc, label, lstrlenW(label), &extent);
     SelectObject(dc, previous); ReleaseDC(window, dc);
     return extent.cx <= bounds.right && extent.cy <= bounds.bottom;
+}
+
+std::wstring WindowText(HWND window) {
+    wchar_t text[512]{}; GetWindowTextW(window, text, 512); return text;
 }
 
 DashboardState Fixture(Appearance appearance) {
@@ -177,6 +182,68 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             CHECK(GetDlgItem(parent, 94) == nullptr);
             CHECK(SendMessageW(duration, CB_GETCOUNT, 0, 0) == 8);
             CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (WS_TABSTOP | LVS_SHOWSELALWAYS | WS_BORDER)) == 0);
+            // Exercise the single-step UI with the actual in-memory session
+            // engine. No production IPC, preferences, input or timers are used.
+            {
+            ManualKeepAwake manual;
+            DashboardState manual_state; manual_state.settings.appearance = appearance; manual_state.now = 100000;
+            const auto sync_manual = [&]() {
+                manual_state.active = manual_state.manual_active = manual.Active();
+                manual_state.manual_deadline = manual.Deadline(); controls.Update(manual_state);
+            };
+            unsigned int chosen = 999;
+            const auto choose = [&](int index) {
+                SendMessageW(duration, CB_SETCURSEL, index, 0);
+                controls.ReadManualCommand(MAKEWPARAM(75, CBN_SELCHANGE), &chosen);
+            };
+            const auto type_hours = [&](const wchar_t* value) {
+                SetWindowTextW(custom_hours, value);
+                controls.ReadManualCommand(MAKEWPARAM(76, EN_CHANGE), &chosen);
+            };
+            const auto start_or_update = [&]() {
+                if (!controls.ReadManualCommand(MAKEWPARAM(kManualStart, BN_CLICKED), &chosen)) { return false; }
+                if (!manual.Start(chosen, manual_state.now, 1000000 + manual_state.now)) { return false; }
+                sync_manual(); return true;
+            };
+            sync_manual(); choose(0);
+            CHECK(IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            CHECK(start_or_update() && manual.Active() && manual.Deadline() == 0);
+            CHECK(WindowText(GetDlgItem(parent, 71)) == L"On · Until Windows restarts");
+            CHECK(WindowText(GetDlgItem(parent, 72)).find(L"Started.") == 0);
+            CHECK(WindowText(GetDlgItem(parent, kManualStart)) == L"Update duration");
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)) && IsWindowEnabled(GetDlgItem(parent, kManualStop)));
+            CHECK(!start_or_update()); // No second step or duplicate unlimited command.
+            manual_state.now += 60000; sync_manual();
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            choose(1); CHECK(IsWindowEnabled(GetDlgItem(parent, kManualStart)) && manual.Deadline() == 0);
+            choose(0); CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            choose(7); type_hours(L"0");
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)) && !start_or_update());
+            CHECK(WindowText(GetDlgItem(parent, 72)).find(L"1 to 168") != std::wstring::npos);
+            type_hours(L"12"); CHECK(IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            CHECK(start_or_update() && chosen == 12);
+            const ULONGLONG original_deadline = manual.Deadline();
+            CHECK(WindowText(GetDlgItem(parent, 71)).find(L"On · ") == 0);
+            CHECK(WindowText(GetDlgItem(parent, 72)).find(L"Duration updated.") == 0);
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            manual_state.now += 60000; sync_manual();
+            CHECK(!start_or_update() && manual.Deadline() == original_deadline);
+            choose(7); type_hours(L"012");
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart))); // Same duration, different presentation.
+            choose(2); manual_state.now += 60000; sync_manual();
+            CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 2);
+            CHECK(IsWindowEnabled(GetDlgItem(parent, kManualStart)) && manual.Deadline() == original_deadline);
+            CHECK(manual.Start(4, manual_state.now, 2000000)); sync_manual(); // External/tray update.
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            CHECK(WindowText(GetDlgItem(parent, 72)).find(L"Duration updated.") != 0);
+            manual.Stop(); sync_manual();
+            CHECK(WindowText(GetDlgItem(parent, 71)) == L"Off");
+            CHECK(WindowText(GetDlgItem(parent, kManualStart)) == L"Start");
+            CHECK(IsWindowEnabled(GetDlgItem(parent, kManualStart)) && !IsWindowEnabled(GetDlgItem(parent, kManualStop)));
+            choose(1); CHECK(start_or_update());
+            manual_state.now = manual.Deadline(); CHECK(manual.Expire(manual_state.now)); sync_manual();
+            CHECK(WindowText(GetDlgItem(parent, 71)) == L"Off" && IsWindowEnabled(GetDlgItem(parent, kManualStart)));
+            }
             constexpr unsigned int expected_hours[] = {0, 1, 2, 4, 8, 12, 24};
             for (int preset = 0; preset < 7; ++preset) {
                 SendMessageW(duration, CB_SETCURSEL, preset, 0);
@@ -205,6 +272,7 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             auto state = Fixture(appearance);
             controls.Update(state);
             CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 4); // Actual eight-hour session.
+            CHECK(!IsWindowEnabled(GetDlgItem(parent, kManualStart))); // No redundant second step.
             SendMessageW(duration, CB_SETCURSEL, 2, 0); // User's draft choice survives periodic refresh.
             CHECK(controls.IsDark() == (appearance == Appearance::Dark && !WindowsHighContrast()));
             const auto palette = ResolveDashboardPalette(appearance, WindowsHighContrast());
@@ -251,7 +319,8 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 }
                 controls.SelectPage(DashboardPage::Overview);
                 CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & WS_HSCROLL) == 0);
-                CHECK(TextFits(GetDlgItem(parent, 40)) && TextFits(GetDlgItem(parent, 71)));
+                CHECK(TextFits(GetDlgItem(parent, 40)) && TextFits(GetDlgItem(parent, 71)) &&
+                    TextFits(GetDlgItem(parent, kManualStart)) && TextFits(GetDlgItem(parent, 72)));
                 ListView_SetItemState(reasons, 12, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
                 ListView_EnsureVisible(reasons, 12, FALSE);
                 const int top = ListView_GetTopIndex(reasons);

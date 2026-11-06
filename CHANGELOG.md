@@ -4,6 +4,13 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-05
+
+- Make manual override a one-step Start action with explicit **On · Until Windows restarts** or **On · time remaining** status and persistent inline start/update confirmation.
+- Replace the always-enabled Apply action with **Update duration**, enabled only for a valid duration different from the currently applied choice. Guard the command itself against stale/programmatic duplicate requests so unchanged timers cannot be silently restarted.
+- Update custom-hour validation immediately while typing, preserve drafts across monitoring refreshes, and keep Stop available independently of draft validity. Confirmation appears only after the session model acknowledges the change; no extra Windows notification is generated.
+- Add isolated real-session-engine flow tests for Start, same-duration rejection, edits/reverts, equivalent preset/custom values, invalid input, update confirmation, unchanged deadlines, external changes, Stop and expiry. Update both themes' screenshots and the manual-flow instructions.
+
 ## [0.5.1] - 2026-11-05
 
 - Fixed a native repaint bug that could leave Manual override completely blank: its sibling group frame now clips its paint DC against the labels, selector and buttons above it. A regression on an isolated, never-activated desktop fails without the fix and passes after it, including light/dark appearance, tab changes and container-only redraws.
