@@ -327,7 +327,8 @@ void ApplyDetectionGrace(DetectionResult* result, ULONGLONG now, DWORD grace_sec
     const ULONGLONG grace = static_cast<ULONGLONG>(grace_seconds) * 1000;
     result->recently_active = result->running_instances > 0 && result->last_activity != 0 &&
                               result->last_activity <= now && now - result->last_activity < grace;
-    result->in_grace_period = result->recently_active && result->active_task_instances == 0;
+    result->in_grace_period = result->recently_active && result->active_task_instances == 0 &&
+                             !result->process_activity_observed;
     result->grace_remaining_milliseconds = result->in_grace_period
                                               ? grace - (now - result->last_activity)
                                               : 0;
@@ -504,6 +505,7 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
 
     std::unordered_map<int, unsigned int> root_counts;
     std::unordered_map<int, unsigned int> activity_root_counts;
+    std::unordered_set<int> active_process_providers;
     std::unordered_map<DWORD, ProcessMetric> current_metrics;
     current_metrics.reserve(processes.size());
 
@@ -545,6 +547,7 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
 
         if (active) {
             last_activity_[ProviderIndex(metric.provider)] = now;
+            active_process_providers.insert(ProviderIndex(metric.provider));
         }
     }
 
@@ -567,6 +570,7 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         result.running_instances = root_counts[ProviderIndex(provider)];
         result.activity_capable_instances = activity_root_counts[ProviderIndex(provider)];
         result.active_task_instances = 0;
+        result.process_activity_observed = active_process_providers.contains(ProviderIndex(provider));
         const auto activity = last_activity_.find(ProviderIndex(provider));
         result.last_activity = activity == last_activity_.end() ? 0 : activity->second;
 
@@ -585,7 +589,8 @@ std::vector<DetectionResult> AgentDetector::Scan(ULONGLONG now, DWORD grace_seco
         if (result.activity_detail.empty()) {
             std::wostringstream activity_detail;
             if (result.activity_capable_instances > 0) {
-                activity_detail << L"Agent process tree recently active";
+                activity_detail << (result.process_activity_observed ? L"Process activity detected" :
+                                                                     L"Agent process tree recently active");
             } else if (result.running_instances > 0) {
                 activity_detail << L"App open; waiting for active work";
             } else {

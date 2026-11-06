@@ -4,6 +4,13 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-05
+
+- Replaced Claude's stateless aggregate leases with per-session foreground/worker tracking. Final background completion and SessionEnd now clear the correct state; worker tool activity no longer renews the parent, and late completion events cannot resurrect ended work.
+- Reconcile parent background snapshots using worker identities/types/status, without retaining private task content. Planned TaskCreated items no longer count as running work.
+- Added native Claude owner PID/creation-time checks: long work stays protected while its owner is alive, exited owners are removed, and unverifiable owners retain a fixed 30-minute fallback. Added idle-prompt, teammate-idle and tool-failure hooks.
+- Ongoing process fallback activity now says **Process activity** instead of continuously resetting a visible release countdown. Quiet samples retain the existing fixed activity grace.
+- Added isolated lifecycle/owner/20-minute timing regressions and full hook-to-background-app CI tests; updated user, architecture, integration, privacy and contributor documentation. Tests use no desktop control or reboot.
 - Add full-background-app manual persistence checks on disposable Windows CI runners, covering timed/unlimited choices, app-only restart, and Stop.
 - Bound the screenshot helper to the command process rather than waiting indefinitely for an auto-started background daemon.
 

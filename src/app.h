@@ -1,6 +1,7 @@
 #pragma once
 
 #include "agent_detector.h"
+#include "claude_lifecycle.h"
 #include "diagnostics.h"
 #include "latch_registry.h"
 #include "power_request.h"
@@ -83,6 +84,7 @@ private:
     DashboardRenderer renderer_;
     DashboardControls controls_;
     AgentRestartGrace restart_grace_;
+    ClaudeLifecycle claude_lifecycle_;
     ManualKeepAwake manual_;
 };
 

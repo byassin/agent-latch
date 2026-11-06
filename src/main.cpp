@@ -1,4 +1,5 @@
 #include "app.h"
+#include "claude_lifecycle.h"
 #include "diagnostics.h"
 #include "hook_bridge.h"
 #include "ipc.h"
@@ -349,6 +350,7 @@ bool RunDetectorGraceContractTests() {
 }
 
 int RunSelfTests(const std::wstring& snapshot_directory) {
+    if (!RunClaudeLifecycleSelfTests()) { return 67; }
     if (!RunSettingsSelfTests()) { return 66; }
     if (!RunWakeSessionSelfTests()) {
         return 64;
@@ -382,49 +384,6 @@ int RunSelfTests(const std::wstring& snapshot_directory) {
     const HookTranslation stop = TranslateHookEvent(Provider::Codex, codex_stop);
     if (stop.action != HookAction::Remove || stop.id != L"codex:session-1") {
         return 44;
-    }
-    const std::string_view claude_subagent =
-        R"({"session_id":"session-2","agent_id":"agent-9","agent_type":"Explore","hook_event_name":"SubagentStart"})";
-    const HookTranslation subagent = TranslateHookEvent(Provider::ClaudeCode, claude_subagent);
-    if (subagent.action != HookAction::Upsert || subagent.id != L"claude:session-2:agent-9" ||
-        subagent.label.find(L"Explore") == std::wstring::npos) {
-        return 45;
-    }
-    const std::string_view claude_background_stop =
-        R"({"session_id":"session-2","cwd":"C:\\work\\demo","hook_event_name":"Stop","background_tasks":[{"id":"task-1","type":"subagent","status":"running","description":"private prompt, with ] punctuation"},{"id":"task-2","type":"shell","status":"running","command":"build --flag=\"a,b\""}]})";
-    const HookTranslation background_stop =
-        TranslateHookEvent(Provider::ClaudeCode, claude_background_stop);
-    if (background_stop.action != HookAction::Upsert ||
-        background_stop.id != L"claude:session-2" ||
-        background_stop.label != L"Claude Code background work" ||
-        background_stop.detail != L"demo" || background_stop.instance_count != 2 ||
-        background_stop.label.find(L"private") != std::wstring::npos) {
-        return 60;
-    }
-    const std::string_view claude_idle_stop =
-        R"({"session_id":"session-2","hook_event_name":"Stop","background_tasks":[]})";
-    const HookTranslation idle_stop = TranslateHookEvent(Provider::ClaudeCode, claude_idle_stop);
-    if (idle_stop.action != HookAction::Remove || idle_stop.id != L"claude:session-2") {
-        return 61;
-    }
-    const std::string_view claude_task_created =
-        R"({"session_id":"session-2","cwd":"C:\\work\\demo","hook_event_name":"TaskCreated","task_id":"task-42","task_subject":"Private customer details"})";
-    const std::string_view claude_task_completed =
-        R"({"session_id":"session-2","hook_event_name":"TaskCompleted","task_id":"task-42","task_subject":"Private customer details"})";
-    const HookTranslation task_created = TranslateHookEvent(Provider::ClaudeCode, claude_task_created);
-    const HookTranslation task_completed = TranslateHookEvent(Provider::ClaudeCode, claude_task_completed);
-    if (task_created.action != HookAction::Upsert ||
-        task_created.id != L"claude:session-2:task:task-42" ||
-        task_created.label != L"Claude Code background task" ||
-        task_created.label.find(L"customer") != std::wstring::npos ||
-        task_completed.action != HookAction::Remove || task_completed.id != task_created.id) {
-        return 62;
-    }
-    const HookTranslation task_without_identity = TranslateHookEvent(
-        Provider::ClaudeCode,
-        R"({"session_id":"session-2","hook_event_name":"TaskCreated"})");
-    if (task_without_identity.action != HookAction::None || !task_without_identity.id.empty()) {
-        return 63;
     }
     const std::string_view unicode_json = R"({"value":"Agent \u2713"})";
     std::wstring unicode_value;

@@ -189,7 +189,7 @@ try {
     $first = @{}
     foreach ($entry in @(
         @{ Name = 'codex'; Path = $codexPath; Provider = 'codex'; Events = 7 },
-        @{ Name = 'claude'; Path = $claudePath; Provider = 'claude'; Events = 11 },
+        @{ Name = 'claude'; Path = $claudePath; Provider = 'claude'; Events = 14 },
         @{ Name = 'cursor'; Path = $cursorPath; Provider = 'cursor'; Events = 8 }
     )) {
         $config = [System.IO.File]::ReadAllText($entry.Path) | ConvertFrom-Json
@@ -216,7 +216,7 @@ try {
         throw 'The existing Antigravity hook was not preserved.'
     }
     $claudeConfig = [System.IO.File]::ReadAllText($claudePath) | ConvertFrom-Json
-    foreach ($eventName in @('PostToolBatch', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'Stop')) {
+    foreach ($eventName in @('PostToolBatch', 'PostToolUseFailure', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'Notification', 'Stop')) {
         $event = $claudeConfig.hooks.PSObject.Properties[$eventName]
         if ($null -eq $event -or
             (Count-ExecCommand $event.Value ([System.IO.Path]::GetFullPath($hookExecutablePath)) @('--hook', 'claude')) -ne 1) {
