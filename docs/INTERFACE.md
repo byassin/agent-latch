@@ -14,6 +14,8 @@ The activity list gives priority to agent work. Each row has a colored provider 
 
 The source count is the number of agent/custom activity rows, not a total task count. One Codex source can contain multiple tasks. The built-in manual session appears only in its separate strip, so it is not duplicated or counted as an agent. Custom external requests remain visible even when their source key is `manual`. A calm, centered empty state explains when the built-in manual override alone is keeping the PC awake. Activity grace and update/restart grace are labeled as grace, not running tasks or predicted completion times.
 
+CPU/I/O fallback evidence shows **Process activity**, not a verified task count. While such activity continues it is not labeled as release grace. **Releasing in…** is the remaining quiet-period or restart grace, never an estimate of how long a model will work. Fresh activity exits grace and restores the activity label. Claude workers have separate rows and are reconciled against its current in-flight background summary; merely creating a to-do does not produce a running row.
+
 ![Overview](../assets/dashboard.png)
 
 ## Agents

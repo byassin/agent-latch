@@ -171,6 +171,9 @@ std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mod
     if (mode == DetectionMode::Tasks && result.in_grace_period) {
         return std::wstring(ProviderShortName(result.provider)) + L" · release grace";
     }
+    if (mode == DetectionMode::Tasks && result.process_activity_observed && result.active_task_instances == 0) {
+        return std::wstring(ProviderShortName(result.provider)) + L" · process activity";
+    }
     if (mode == DetectionMode::Tasks && result.provider == Provider::Codex) {
         if (result.activity_detail.find(L"ChatGPT response") != std::wstring::npos &&
             result.activity_detail.find(L"Codex task") != std::wstring::npos) {
@@ -441,6 +444,15 @@ void AgentLatchApp::ShowManualMenu() {
 
 void AgentLatchApp::Tick(bool scan_agents) {
     const ULONGLONG now = GetTickCount64();
+    if (settings_.ProviderMode(Provider::ClaudeCode) == DetectionMode::Tasks) {
+        const auto released = claude_lifecycle_.Refresh(latches_, now);
+        if (released.exited != 0 || released.expired != 0) {
+            diagnostics_.Write(L"claude_sessions_released", L"owner_exited=" +
+                std::to_wstring(released.exited) + L" unverified_expired=" + std::to_wstring(released.expired));
+        }
+    } else {
+        claude_lifecycle_.Clear(latches_);
+    }
     if (manual_.Expire(now)) {
         diagnostics_.Write(L"manual_session_ended", L"reason=timer_expired");
         SaveManualSession();
@@ -581,6 +593,36 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
     const std::vector<std::wstring> fields = SplitFields(message);
     if (fields.empty()) {
         return false;
+    }
+    if (fields[0] == L"CLAUDE2") {
+        ClaudeEvent event;
+        if (!ParseClaudeEventMessage(fields, &event)) { return false; }
+        if (settings_.ProviderMode(Provider::ClaudeCode) == DetectionMode::Tasks) {
+            bool previously_active = false;
+            for (const auto& latch : latches_.Snapshot()) {
+                if (latch.provider == Provider::ClaudeCode && latch.kind == LatchKind::Hook) { previously_active = true; }
+            }
+            claude_lifecycle_.Apply(event, GetTickCount64());
+            claude_lifecycle_.Refresh(latches_, GetTickCount64());
+            bool active = false;
+            for (const auto& latch : latches_.Snapshot()) {
+                if (latch.provider == Provider::ClaudeCode && latch.kind == LatchKind::Hook) { active = true; }
+            }
+            if (previously_active && !active && (event.name == L"stop" || event.name == L"subagentstop" ||
+                event.name == L"sessionend" || event.name == L"stopfailure" || event.name == L"idle" ||
+                event.name == L"taskcompleted" || event.name == L"teammateidle")) {
+                HoldFinalHookRelease(latches_, Provider::ClaudeCode, GetTickCount64());
+            } else if (active) {
+                latches_.Remove(L"hook-settle:claude");
+            }
+            diagnostics_.Write(L"claude_lifecycle", L"event=" + event.name + L" sessions=" +
+                std::to_wstring(claude_lifecycle_.SessionCount()) + L" snapshot=" +
+                std::to_wstring(event.has_background_snapshot ? 1 : 0) + L" background=" +
+                std::to_wstring(event.background.size()) + L" owner_tracked=" +
+                std::to_wstring(event.owner.pid != 0 ? 1 : 0));
+        }
+        Tick(true);
+        return true;
     }
     if (fields[0] == L"SHOW") {
         ShowDashboard();
@@ -1021,7 +1063,7 @@ LRESULT AgentLatchApp::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
         case WM_COPYDATA: {
             const COPYDATASTRUCT* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
             if (data == nullptr || data->dwData != kCopyDataSignature || data->lpData == nullptr ||
-                data->cbData < sizeof(wchar_t) || data->cbData > 8192) {
+                data->cbData < sizeof(wchar_t) || data->cbData > 131074 || data->cbData % sizeof(wchar_t) != 0) {
                 return FALSE;
             }
             const std::size_t character_count = data->cbData / sizeof(wchar_t);

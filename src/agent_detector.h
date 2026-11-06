@@ -18,6 +18,7 @@ struct DetectionResult {
     unsigned int running_instances{0};
     unsigned int activity_capable_instances{0};
     unsigned int active_task_instances{0};
+    bool process_activity_observed{false};
     bool recently_active{false};
     bool in_grace_period{false};
     ULONGLONG grace_remaining_milliseconds{0};

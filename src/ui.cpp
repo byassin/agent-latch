@@ -104,6 +104,7 @@ std::wstring LatchSecondaryText(const Latch& latch, ULONGLONG now) {
         return latch.instance_count > 1 ? std::to_wstring(latch.instance_count) + L" active" : L"Active";
     }
     if (latch.kind == LatchKind::Detector) {
+        if (latch.detail == L"Process activity detected") { return L"Process activity"; }
         if (latch.label.ends_with(L" open")) {
             return L"App open";
         }

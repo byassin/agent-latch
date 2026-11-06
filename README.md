@@ -52,12 +52,14 @@ AgentLatch uses a Windows power request. **Sleep protection is on** means Window
 | Provider | Tasks mode | Open mode | Lifecycle hooks |
 |---|---|---|---|
 | OpenAI / Codex | ChatGPT response state + native Codex lifecycle + hooks/CLI activity | Unified desktop app or CLI | Codex tasks; CLI sessions and subagents |
-| Claude Code | Managed hooks; CLI activity for portable installs | Desktop app or CLI | Sessions, subagents, background work, and task registry |
+| Claude Code | Managed session/worker hooks; CLI activity for portable installs | Desktop app or CLI | Foreground work, subagents, and in-flight background tasks |
 | Cursor | Hooks + agent CLI activity | Cursor IDE or agent CLI | Agent and subagent events |
 | OpenCode | CLI activity | CLI process | External lease API |
 | Google Antigravity / Gemini CLI | Antigravity hooks + CLI activity | Antigravity app or Gemini CLI | Antigravity conversations |
 
-In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Claude `Stop` events retain the session latch when Claude reports in-flight background work, and task/subagent completion releases only the matching independent latch. Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open. If a protected provider disappears, a separate ten-minute restart grace covers its return. Turning a provider **Off** cancels its automatic protection immediately. Hook leases expire automatically if an agent crashes or never sends a final event. Choose each provider's mode from its dropdown on the **Agents** tab; changing tabs never changes a tracking mode.
+In **Tasks** mode, opening an Electron app by itself never latches the computer. For the unified OpenAI Windows app, AgentLatch recognizes both active ChatGPT responses and Codex task lifecycle state, including while the app is minimized. Claude foreground work and workers are tracked separately: `Stop`/`SubagentStop` background snapshots replace the outstanding worker set, the last worker finishing clears its protection, and `SessionEnd` clears that session's descendants. Creating a to-do task alone does not latch. Verified native Claude process ownership keeps long-running work protected and removes it when that process exits; when ownership cannot be verified, a fixed 30-minute event lease is the fallback. Idle notifications clear foreground protection without dropping known background work.
+
+Detector activity is sampled every two seconds and retains a three-minute safety grace by default while the provider remains open. Ongoing CPU/I/O fallback activity is labeled **Process activity**, not a task-completion estimate or a release countdown. **Releasing in…** appears only after that activity stops; fresh activity changes it back to activity. If a protected provider disappears, a separate fixed ten-minute restart grace covers its return. Turning a provider **Off** cancels its automatic protection immediately. Choose each provider's mode from its dropdown on the **Agents** tab; changing tabs never changes a tracking mode. No detector can guarantee correct state if a provider stops emitting lifecycle events; see [Claude integration limitations](docs/INTEGRATIONS.md#claude-code).
 
 ## Manual keep-awake and overnight use
 
@@ -162,7 +164,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.2
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.4.3
 ```
 
 ## Design principles

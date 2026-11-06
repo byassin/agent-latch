@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AgentLatch VERSION 0.4.2 LANGUAGES CXX RC)
+project(AgentLatch VERSION 0.4.3 LANGUAGES CXX RC)
 
 set(AGENTLATCH_VERSION_LABEL_OVERRIDE "" CACHE STRING "Optional user-visible AgentLatch version label override")
 if(AGENTLATCH_VERSION_LABEL_OVERRIDE)
@@ -28,6 +28,8 @@ add_executable(AgentLatch WIN32
     src/openai_ui_activity.cpp
     src/ipc.cpp
     src/hook_bridge.cpp
+    src/claude_lifecycle.cpp
+    tests/claude_lifecycle_tests.cpp
     src/diagnostics.cpp
     src/watchdog.cpp
     src/wake_sessions.cpp

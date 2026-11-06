@@ -30,7 +30,7 @@ std::wstring BuildRemoveMessage(const std::wstring& id) {
 
 bool SendIpcMessage(const std::wstring& message, DWORD timeout_milliseconds) {
     HWND window = FindWindowW(kWindowClassName, nullptr);
-    if (window == nullptr || message.empty() || message.size() > 4096) {
+    if (window == nullptr || message.empty() || message.size() > 65536) {
         return false;
     }
 

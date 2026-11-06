@@ -1,4 +1,5 @@
 #include "hook_bridge.h"
+#include "claude_lifecycle.h"
 
 #include "ipc.h"
 #include "win_util.h"
@@ -340,6 +341,9 @@ HookTranslation TranslateHookEvent(
     std::wstring_view event_override) {
     HookTranslation translation;
     translation.provider = provider;
+    // Claude events require session-wide reconciliation, not one stateless
+    // lease operation. HandleHookInvocation routes them through ClaudeLifecycle.
+    if (provider == Provider::ClaudeCode) { return translation; }
 
     std::wstring event_name;
     std::wstring session_id;
@@ -434,6 +438,20 @@ HookTranslation TranslateHookEvent(
 
 int HandleHookInvocation(Provider provider, std::wstring_view event_override) {
     const std::vector<char> input = ReadStandardInput();
+    if (provider == Provider::ClaudeCode) {
+        ClaudeEvent event;
+        if (ParseClaudeEvent(std::string_view(input.data(), input.size()), &event, event_override)) {
+            event.owner = FindClaudeHookOwner();
+            if (EnsureBackgroundInstance()) {
+                SendIpcMessage(L"SEEN\tclaude");
+                // One message applies the whole event/snapshot atomically. Never
+                // send separate remove/upsert messages with an unprotected gap.
+                SendIpcMessage(BuildClaudeEventMessage(event));
+            }
+        }
+        WriteHookResponse(provider, L"");
+        return 0;
+    }
     std::wstring event_name(event_override);
     if (event_name.empty()) {
         ExtractJsonString(std::string_view(input.data(), input.size()), "hook_event_name", &event_name);
