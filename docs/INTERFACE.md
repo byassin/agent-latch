@@ -1,6 +1,6 @@
 # Interface guide
 
-This guide describes **0.5.2**, with one-step manual Start, explicit On status and a read-only live activity list. See the [manual/activity walkthrough](UI-UPDATE.md).
+This guide describes **AgentLatch 0.6.0**. One-step manual Start, explicit On status and the read-only live activity list remain unchanged from 0.5.2. See the [manual/activity walkthrough](UI-UPDATE.md) and [review notes](REVIEW.md).
 
 AgentLatch 0.5 uses Windows common controls: standard tabs, buttons, dropdowns, checkboxes, an activity table and a status bar. It remains a small Win32 tray utility, without a web runtime or an added UI framework. The images below render actual release controls off-screen with illustrative test activity.
 
@@ -46,6 +46,14 @@ These map to `Tasks`, `Open`, and `Off` internally. A protected provider disappe
 Each preference uses a standard Windows checkbox with a clear label and explanation. Checked means enabled. Windows owns checked/focus/disabled states, keyboard activation and accessibility. **Diagnostic history** opens the local bounded log. **Repair integrations…** is intentional maintenance, not required first-run setup. Neither runs just by visiting Settings.
 
 ![Settings](../assets/settings.png)
+
+## New review controls
+
+On **Agents**, **Release delay** chooses 30 seconds, 1/3/5/10/30 minutes after activity-detected work stops. The default remains 3 minutes; an existing custom saved value remains visible instead of silently becoming a preset. This changes detector activity grace only: Claude hook-settling, manual timers and the fixed restart-recovery grace do not use this selector. Choosing a shorter delay trades less idle hold time for less coverage of quiet activity gaps.
+
+Idle Claude Tasks mode displays first-hook guidance if the integration is expected but no hook has ever been received. A historical received-hook marker does not prove that every current session/background worker is being observed.
+
+On **Settings**, **Save status report…** exports a local JSON snapshot with aggregate state and native power errors. A native Save dialog lets you choose a destination and confirm replacement. It does not export chats, paths, task labels, IDs or raw logs, and nothing is uploaded. See [status report details](STATUS-REPORT.md). The dialog follows Windows' own appearance.
 
 ## Keyboard and tray behavior
 

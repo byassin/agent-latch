@@ -8,18 +8,20 @@
 
 AgentLatch is a lightweight, open-source Windows tray app that prevents idle sleep while AI agents work—or whenever you explicitly need your PC to stay awake. It understands concurrent agents, exposes every active reason, and lets normal Windows sleep behavior return after the final source, manual session, and safety grace finish.
 
+**AgentLatch 0.6.0** adds configurable activity release delay, privacy-minimized status reports, cancelled-Codex-turn detection and Windows power-request recovery. See the [review and validation notes](docs/REVIEW.md) for details and remaining limitations.
+
 <p align="center">
   <img src="assets/dashboard.png" width="620" alt="AgentLatch Overview with activity-first layout and compact manual override">
 </p>
-<p align="center"><sub>Native 0.5.2 UI rendered off-screen with illustrative activity. These are real controls with test data, not an overnight protection test.</sub></p>
+<p align="center"><sub>Native 0.6.0 UI rendered off-screen with illustrative activity. These are real controls with test data, not an overnight protection test.</sub></p>
 
 ## A compact Windows utility
 
 AgentLatch has three tabs, with protection status always visible:
 
 - **Overview:** a read-only live activity list shows each source, signal and status. Rows are not selectable and there is no details pane. Manual protection has explicit On/Off status, a visible duration selector, and Start/Update duration/Stop controls in its own separate group.
-- **Agents:** select **Tasks only**, **While open**, or **Off** explicitly for each provider. These correspond to Tasks, Open, and Off mode in the technical documentation.
-- **Settings:** choose screen behavior, launch at sign-in, and notifications; open diagnostics or repair integrations when needed.
+- **Agents:** select **Tasks only**, **While open**, or **Off** explicitly for each provider, and choose the release delay for activity-detected work. Lifecycle hooks and manual timers retain their own timing.
+- **Settings:** choose screen behavior, launch at sign-in, and notifications; save a privacy-minimized status report, open diagnostics or repair integrations when needed.
 
 AgentLatch 0.5 uses a Windows-owned resizable title bar and native controls, without a duplicate More menu or custom row paging. In **0.5.2**, manual Start is one step with inline confirmation; Update duration is enabled only when you change the duration. Activity remains read-only. Its preferred client is 680 × 520 logical pixels. **Settings → Appearance** offers System, Light and Dark without changing Windows' theme; high contrast takes priority. Use **Tab / Shift+Tab** between controls and **Ctrl+Tab / Ctrl+Shift+Tab** between pages. Closing leaves monitoring in the tray; right-click the tray icon and choose **Exit** to quit. See the [interface guide](docs/INTERFACE.md) and [manual/activity walkthrough](docs/UI-UPDATE.md).
 
@@ -118,7 +120,7 @@ AgentLatch.exe --acquire --id build-42 --source external --label "Release build"
 AgentLatch.exe --release --id build-42
 ```
 
-Leases are local to the signed-in Windows session, fields are bounded and sanitized, and TTLs are capped at 24 hours. Repeating `--acquire` with the same ID renews that lease.
+Leases are local to the signed-in Windows session, fields are bounded and sanitized, and TTLs are capped at 24 hours. Repeating `--acquire` with the same ID renews that lease. IDs must be 1–191 characters without control characters; missing/malformed IDs fail instead of being silently truncated. Release of an already-stopped app succeeds without starting it. Delivery failures to a running app return 5 rather than false success. Unknown/duplicate options and mixed primary commands return 2; quoted option-looking label/detail values are data, not commands.
 
 Other commands:
 
@@ -153,6 +155,12 @@ Use **Open diagnostic history** in the tray menu to inspect the bounded local ev
 
 `AgentLatch.exe --export-ui-screenshots C:\path\to\captures` exports `dashboard.png`, `agents.png`, and `settings.png` from one current state snapshot. It renders the real native controls in a hidden, non-activating window: no mouse/keyboard input, visible tab switch, desktop capture, or focus change. The developer wrapper is `scripts/capture-dashboard.ps1`. Exports reflect current provider settings and labels; review them before publishing. This is a UI capture, not an independent power-policy or overnight qualification test.
 
+### Shareable status reports
+
+Use **Settings → Save status report…** or `AgentLatch.exe --export-status C:\Reports\AgentLatch-status.json` (an existing folder and a new absolute `.json` filename). The report contains version/time, provider modes and aggregate counts, manual state, release delay, native errors and actual system/display request flags. It omits prompts, responses, labels, session/worker IDs, file paths and raw logs. No report is uploaded automatically. Review it before sharing.
+
+CLI status export never starts a stopped app: exit 4 means no running instance, 5 means export/delivery failed, and 2 means invalid input. Existing files are not overwritten by CLI; the GUI explicitly asks before replacement. A report is a current snapshot, not a sleep-history or effective-power-policy guarantee. See the [report guide](docs/STATUS-REPORT.md).
+
 ## Build from source
 
 Requirements:
@@ -173,7 +181,7 @@ The x64 build script runs the executable's self-test before reporting success. C
 Build the setup executable after compiling AgentLatch:
 
 ```powershell
-.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.5.2
+.\scripts\build-installer.ps1 -Executable .\build-x64\Release\AgentLatch.exe -Version 0.6.0
 ```
 
 ## Design principles

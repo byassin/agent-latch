@@ -1,4 +1,5 @@
 #include "app.h"
+#include "status_report.h"
 #include "claude_lifecycle.h"
 #include "diagnostics.h"
 #include "hook_bridge.h"
@@ -26,14 +27,46 @@ namespace {
 struct CommandLine {
     std::vector<std::wstring> arguments;
 
+    static bool TakesValue(const std::wstring& option) {
+        return option == L"--watchdog" || option == L"--restart-attempt" || option == L"--hook" ||
+            option == L"--event" || option == L"--test-render-dir" || option == L"--export-status" ||
+            option == L"--export-ui-screenshots" || option == L"--capture-theme" || option == L"--id" ||
+            option == L"--hours" || option == L"--source" || option == L"--label" || option == L"--detail" || option == L"--ttl";
+    }
+    static bool Primary(const std::wstring& option) {
+        return option == L"--watchdog" || option == L"--hook" || option == L"--self-test" ||
+            option == L"--show" || option == L"--quit" || option == L"--release" ||
+            option == L"--keep-awake" || option == L"--stop-keep-awake" || option == L"--acquire" ||
+            option == L"--export-status" || option == L"--export-ui-screenshots";
+    }
+    bool Valid() const {
+        unsigned int commands = 0;
+        std::vector<std::wstring> seen;
+        for (std::size_t index = 0; index < arguments.size(); ++index) {
+            const auto& option = arguments[index];
+            if (std::find(seen.begin(), seen.end(), option) != seen.end()) { return false; }
+            seen.push_back(option);
+            commands += Primary(option) ? 1u : 0u;
+            if (TakesValue(option)) { if (++index >= arguments.size()) { return false; } }
+            else if (!Primary(option) && option != L"--background" && option != L"--indefinite") { return false; }
+        }
+        return commands <= 1 && (arguments.empty() || commands == 1 || Has(L"--background"));
+    }
+
     bool Has(const std::wstring& option) const {
-        return std::find(arguments.begin(), arguments.end(), option) != arguments.end();
+        for (std::size_t index = 0; index < arguments.size(); ++index) {
+            if (arguments[index] == option) { return true; }
+            if (TakesValue(arguments[index]) && index + 1 < arguments.size()) { ++index; }
+        }
+        return false;
     }
 
     std::wstring ValueAfter(const std::wstring& option) const {
-        const auto iterator = std::find(arguments.begin(), arguments.end(), option);
-        return iterator != arguments.end() && std::next(iterator) != arguments.end() ? *std::next(iterator)
-                                                                                     : std::wstring{};
+        for (std::size_t index = 0; index < arguments.size(); ++index) {
+            if (arguments[index] == option) { return index + 1 < arguments.size() ? arguments[index + 1] : L""; }
+            if (TakesValue(arguments[index]) && index + 1 < arguments.size()) { ++index; }
+        }
+        return {};
     }
 };
 
@@ -350,6 +383,12 @@ bool RunDetectorGraceContractTests() {
 }
 
 int RunSelfTests(const std::wstring& snapshot_directory) {
+    const CommandLine quoted_label{{L"--acquire", L"--id", L"safe", L"--label", L"--quit"}};
+    const CommandLine mixed{{L"--keep-awake", L"--indefinite", L"--quit"}};
+    const CommandLine duplicate{{L"--release", L"--id", L"one", L"--id", L"two"}};
+    if (!quoted_label.Valid() || quoted_label.Has(L"--quit") || quoted_label.ValueAfter(L"--label") != L"--quit" ||
+        mixed.Valid() || duplicate.Valid() || CommandLine{{L"--unknown"}}.Valid()) { return 83; }
+    if (!RunPowerRequestSelfTests()) { return 81; }
     if (!RunManualHoursDialogTests()) { return 68; }
     if (!RunClaudeLifecycleSelfTests()) { return 67; }
     if (!RunSettingsSelfTests()) { return 66; }
@@ -359,6 +398,7 @@ int RunSelfTests(const std::wstring& snapshot_directory) {
     if (!RunDashboardContractTests(snapshot_directory)) {
         return 65;
     }
+    if (!RunStatusReportSelfTests(snapshot_directory)) { return 82; }
     const ULONGLONG now = GetTickCount64();
     LatchRegistry registry;
     if (!registry.Upsert(L"test", Provider::Codex, LatchKind::Hook, L"Codex task", L"test", now, 1000) ||
@@ -516,14 +556,19 @@ int HandleUtilityCommand(const CommandLine& command_line) {
         return RunWatchdog(process_id, ReadRestartAttempt(command_line));
     }
     if (command_line.Has(L"--show")) {
-        if (EnsureBackgroundInstance()) {
-            SendIpcMessage(L"SHOW");
-        }
-        return 0;
+        if (!EnsureBackgroundInstance()) { return 4; }
+        return SendIpcMessage(L"SHOW") ? 0 : 5;
     }
     if (command_line.Has(L"--quit")) {
-        SendIpcMessage(L"EXIT");
-        return 0;
+        if (FindWindowW(kWindowClassName, nullptr) == nullptr) { return 0; }
+        return SendIpcMessage(L"EXIT") ? 0 : 5;
+    }
+    if (command_line.Has(L"--export-status")) {
+        const auto path = command_line.ValueAfter(L"--export-status");
+        if (!IsStatusReportPath(path)) { return 2; }
+        // Health inspection must never auto-start monitoring or acquire a latch.
+        if (FindWindowW(kWindowClassName, nullptr) == nullptr) { return 4; }
+        return SendIpcMessage(L"EXPORT_STATUS\t" + path, 5000) ? 0 : 5;
     }
     if (command_line.Has(L"--export-ui-screenshots")) {
         const std::wstring directory = command_line.ValueAfter(L"--export-ui-screenshots");
@@ -535,10 +580,9 @@ int HandleUtilityCommand(const CommandLine& command_line) {
     }
     if (command_line.Has(L"--release")) {
         const std::wstring id = command_line.ValueAfter(L"--id");
-        if (!id.empty() && EnsureBackgroundInstance()) {
-            SendIpcMessage(BuildRemoveMessage(L"external:" + id));
-        }
-        return id.empty() ? 2 : 0;
+        if (id.empty() || id.size() > 191 || id.starts_with(L"--") || id != SanitizeMessageField(id, 191)) { return 2; }
+        if (FindWindowW(kWindowClassName, nullptr) == nullptr) { return 0; } // Already released; do not start a daemon.
+        return SendIpcMessage(BuildRemoveMessage(L"external:" + id)) ? 0 : 5;
     }
     if (command_line.Has(L"--keep-awake") || command_line.Has(L"--stop-keep-awake")) {
         const bool stop = command_line.Has(L"--stop-keep-awake");
@@ -563,12 +607,11 @@ int HandleUtilityCommand(const CommandLine& command_line) {
         }
         ULONGLONG ttl = 30ULL * 60ULL * 1000ULL;
         const std::wstring ttl_text = command_line.ValueAfter(L"--ttl");
-        if (!ttl_text.empty() && !ParseSeconds(ttl_text, &ttl)) {
+        if (command_line.Has(L"--ttl") && !ParseSeconds(ttl_text, &ttl)) {
             return 3;
         }
-        if (id.empty() || !EnsureBackgroundInstance()) {
-            return id.empty() ? 2 : 4;
-        }
+        if (id.empty() || id.size() > 191 || id.starts_with(L"--") || id != SanitizeMessageField(id, 191)) { return 2; }
+        if (!EnsureBackgroundInstance()) { return 4; }
         const std::wstring message = BuildUpsertMessage(
             L"external:" + id,
             provider,
@@ -592,6 +635,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
     using namespace agent_latch;
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     const CommandLine command_line = ReadCommandLine();
+    if (!command_line.Valid()) { return 2; }
 
     if (command_line.Has(L"--self-test")) {
         return RunSelfTests(command_line.ValueAfter(L"--test-render-dir"));

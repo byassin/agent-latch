@@ -18,6 +18,13 @@ function Invoke-Control([string]$arguments) {
     $command.Refresh()
     if ($command.ExitCode -ne 0) { throw "App command failed: $arguments ($($command.ExitCode))" }
 }
+function Invoke-ExpectedExit([string]$arguments, [int]$expectedExit) {
+    $command = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    $null = $command.Handle
+    if (-not $command.WaitForExit(30000)) { throw "Command timed out: $arguments" }
+    $command.Refresh()
+    if ($command.ExitCode -ne $expectedExit) { throw "Expected $expectedExit for $arguments; got $($command.ExitCode)" }
+}
 function Read-Manual {
     $value = Get-ItemProperty -LiteralPath ($settingsPath + '\ManualSession') -ErrorAction SilentlyContinue
     if ($null -eq $value -or $null -eq $value.UntilUtc) { return [uint64]0 }
@@ -29,6 +36,12 @@ function Stop-App {
     foreach ($copy in $copies) { Wait-Process -Id $copy.ProcessId -Timeout 15 -ErrorAction SilentlyContinue }
 }
 try {
+    $stoppedReport = Join-Path $env:RUNNER_TEMP ('AgentLatchStopped-' + [guid]::NewGuid().ToString('N') + '.json')
+    Invoke-ExpectedExit ('--export-status "' + $stoppedReport + '"') 4
+    Invoke-Control '--release --id already-stopped'
+    if ((Get-Process -Name AgentLatch -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $stoppedReport)) {
+        throw 'Read-only report/release unexpectedly started a stopped app or wrote a report.'
+    }
     New-Item -Path $settingsPath -Force | Out-Null
     $created = $true
     New-ItemProperty -LiteralPath $settingsPath -Name Notifications -Value 0 -PropertyType DWord | Out-Null
@@ -36,6 +49,15 @@ try {
         Invoke-Control $arguments
         $expected = Read-Manual
         if ($expected -eq 0) { throw 'Full app did not persist the manual override.' }
+        $reportPath = Join-Path $env:RUNNER_TEMP ('AgentLatchStatus-' + [guid]::NewGuid().ToString('N') + '.json')
+        Invoke-Control ('--export-status "' + $reportPath + '"')
+        $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+        $reportHash = (Get-FileHash -LiteralPath $reportPath).Hash
+        Invoke-ExpectedExit ('--export-status "' + $reportPath + '"') 5
+        if ((Get-FileHash -LiteralPath $reportPath).Hash -ne $reportHash) { throw 'CLI report overwrote an existing file.' }
+        if (-not $report.manual.active -or -not $report.power.system_request_set -or (Read-Manual) -ne $expected) {
+            throw 'Status export is inaccurate or mutated the running manual session.'
+        }
         $appearanceBefore = (Get-ItemProperty -LiteralPath $settingsPath).Appearance
         foreach ($theme in @('light', 'dark')) {
             $themePath = Join-Path $env:RUNNER_TEMP ('AgentLatchThemeExport-' + $theme)

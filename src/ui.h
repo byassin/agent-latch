@@ -29,6 +29,7 @@ enum class UiAction {
     ApplyManual,
     StopManual,
     OpenDiagnostics,
+    SaveStatusReport,
 };
 
 enum class DashboardPage { Overview, Agents, Settings };
@@ -86,6 +87,7 @@ public:
     UiAction ActionForCommand(WPARAM command) const;
     bool ReadProviderChange(WPARAM command, Provider* provider, DetectionMode* mode) const;
     bool ReadAppearanceChange(WPARAM command, Appearance* appearance) const;
+    bool ReadReleaseDelayChange(WPARAM command, DWORD* seconds) const;
     bool ReadManualCommand(WPARAM command, unsigned int* hours);
     bool DrawItem(const DRAWITEMSTRUCT* item) const;
     bool MeasureItem(MEASUREITEMSTRUCT* item) const;
@@ -107,6 +109,7 @@ private:
     void ApplyVisibility();
     void LayoutReasonColumns();
     void UpdateReasonRows();
+    void UpdateReleaseDelay();
     bool ReadManualDuration(unsigned int* hours) const;
     void UpdateManualControls();
     void Place(int id, int x, int y, int width, int height);

@@ -8,6 +8,7 @@
 #include "settings.h"
 #include "ui.h"
 #include "wake_sessions.h"
+#include "status_report.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -47,6 +48,8 @@ private:
     void ShowTransitionNotification(bool active);
     void ShowProtectionFailureNotification(DWORD error);
     void OpenDiagnostics();
+    void SaveStatusReport();
+    StatusReportState StatusSnapshot() const;
     void LaunchHookSetup();
     void ShowAbout();
     void ShowManualMenu();
@@ -65,6 +68,8 @@ private:
     UINT taskbar_created_message_{0};
     NOTIFYICONDATAW tray_icon_{};
     bool tray_added_{false};
+    bool tray_failure_logged_{false};
+    ULONGLONG next_tray_retry_at_{0};
     bool shutting_down_{false};
     bool transition_state_initialized_{false};
     bool last_active_state_{false};

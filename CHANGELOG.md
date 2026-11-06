@@ -4,6 +4,16 @@ All notable changes to AgentLatch will be documented here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-06
+
+- Add a release-delay selector on Agents (30 seconds to 30 minutes; default unchanged at 3 minutes), preserve existing custom saved values, and explain that lifecycle hooks/manual timers have separate timing.
+- Add privacy-minimized JSON status reports through Settings and `--export-status`: version, time, aggregate counts/modes, preferences and actual power-request state, without user labels, IDs, paths, chats or logs. CLI inspection does not start the app or overwrite existing reports; file replacement is atomic.
+- End cancelled Codex turns on `turn_aborted`, accept protocol start/complete aliases, and restrict matching to direct metadata rather than nested/escaped response content.
+- Retry initial Windows power-handle creation failures at a bounded two-second cadence, recover actual desired requests and normalize missing native error codes. Surface failed release state consistently instead of claiming the PC can sleep.
+- Resume an already-running production installation quietly after a successful silent upgrade, without auto-launching cold/stopped installs or test/no-stop installations. Add a guarded hosted-runner regression.
+- Retry missing/lost tray registration, fail initialization rather than running without a monitoring timer/settings, acknowledge preference-save failures, and report IPC delivery failures accurately. Release of an already-stopped app remains idempotent without launching a daemon.
+- Add first-hook guidance for Claude, deterministic power failure injection, cancellation/JSON-boundary cases, private-report JSON/write tests and expanded native DPI/layout checks. See `docs/REVIEW.md` for scope, evidence and remaining limitations.
+
 ## [0.5.2] - 2026-11-05
 
 - Make manual override a one-step Start action with explicit **On · Until Windows restarts** or **On · time remaining** status and persistent inline start/update confirmation.
@@ -276,7 +286,8 @@ Local-only build; first published as part of 0.3.0.
 - Per-provider controls, startup toggle, tray notifications, and crash-safe lease expiry.
 - x64 self-tests plus x64 and ARM64 continuous-integration builds.
 
-[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/byassin/agent-latch/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/byassin/agent-latch/compare/v0.5.2...v0.6.0
 [0.2.4]: https://github.com/byassin/agent-latch/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/byassin/agent-latch/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/byassin/agent-latch/compare/v0.2.1...v0.2.2
