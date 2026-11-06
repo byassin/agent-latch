@@ -87,6 +87,8 @@ bool Settings::Load() {
     manual_keep_awake = manual_value != 0;
     manual_end_utc_milliseconds = manual_value > 1 ? manual_value : 0;
     codex_mode = ReadDetectionMode(key, L"ModeCodex", L"DetectCodex", codex_mode);
+    const DWORD appearance_value = ReadDword(key, L"Appearance", 0);
+    appearance = appearance_value <= 2 ? static_cast<Appearance>(appearance_value) : Appearance::System;
     claude_mode = ReadDetectionMode(key, L"ModeClaude", L"DetectClaude", claude_mode);
     cursor_mode = ReadDetectionMode(key, L"ModeCursor", L"DetectCursor", cursor_mode);
     opencode_mode = ReadDetectionMode(key, L"ModeOpenCode", L"DetectOpenCode", opencode_mode);
@@ -135,6 +137,7 @@ bool Settings::Save() const {
         RegCloseKey(manual_key);
     } else { result = false; }
     result = WriteDword(key, L"ModeCodex", static_cast<DWORD>(codex_mode)) && result;
+    result = WriteDword(key, L"Appearance", static_cast<DWORD>(appearance)) && result;
     result = WriteDword(key, L"ModeClaude", static_cast<DWORD>(claude_mode)) && result;
     result = WriteDword(key, L"ModeCursor", static_cast<DWORD>(cursor_mode)) && result;
     result = WriteDword(key, L"ModeOpenCode", static_cast<DWORD>(opencode_mode)) && result;
@@ -197,11 +200,13 @@ bool RunSettingsSelfTests() {
         original.manual_keep_awake = true;
         original.claude_mode = DetectionMode::Off;
         original.notifications = false;
+        original.appearance = Appearance::Dark;
         success = original.Save() && success;
         Settings app_restart;
         success = app_restart.Load() && app_restart.manual_keep_awake &&
             app_restart.manual_end_utc_milliseconds == 0 &&
             app_restart.claude_mode == DetectionMode::Off && !app_restart.notifications && success;
+        success = app_restart.appearance == Appearance::Dark && success;
 
         HKEY manual_key = nullptr;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\AgentLatch\\ManualSession", 0,
@@ -242,6 +247,16 @@ bool RunSettingsSelfTests() {
         success = app_restart.Load() && !app_restart.manual_keep_awake && success;
         original.manual_keep_awake = false;
         success = original.Save() && app_restart.Load() && !app_restart.manual_keep_awake && success;
+        for (Appearance appearance : {Appearance::System, Appearance::Light, Appearance::Dark}) {
+            original.appearance = appearance;
+            success = original.Save() && app_restart.Load() && app_restart.appearance == appearance && success;
+        }
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) { return false; }
+        const DWORD invalid_appearance = 99;
+        success = RegSetValueExW(key, L"Appearance", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&invalid_appearance),
+            sizeof(invalid_appearance)) == ERROR_SUCCESS && success;
+        RegCloseKey(key);
+        success = app_restart.Load() && app_restart.appearance == Appearance::System && success;
         return success;
     }();
     const bool restored = RegOverridePredefKey(HKEY_CURRENT_USER, nullptr) == ERROR_SUCCESS;

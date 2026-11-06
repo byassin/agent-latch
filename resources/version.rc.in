@@ -12,6 +12,7 @@ BEGIN
     LTEXT "Hours (1 to 168):", -1, 12, 14, 112, 14
     EDITTEXT IDC_MANUAL_HOURS, 132, 12, 84, 16, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
     LTEXT "Agent monitoring continues when the timer ends.", -1, 12, 39, 204, 23
+    LTEXT "", IDC_MANUAL_ERROR, 12, 62, 204, 12
     DEFPUSHBUTTON "Start", IDOK, 104, 77, 54, 17
     PUSHBUTTON "Cancel", IDCANCEL, 164, 77, 54, 17
 END

@@ -36,6 +36,14 @@ try {
         Invoke-Control $arguments
         $expected = Read-Manual
         if ($expected -eq 0) { throw 'Full app did not persist the manual override.' }
+        $appearanceBefore = (Get-ItemProperty -LiteralPath $settingsPath).Appearance
+        foreach ($theme in @('light', 'dark')) {
+            $themePath = Join-Path $env:RUNNER_TEMP ('AgentLatchThemeExport-' + $theme)
+            Invoke-Control ('--export-ui-screenshots "' + $themePath + '" --capture-theme ' + $theme)
+            if ((Get-ItemProperty -LiteralPath $settingsPath).Appearance -ne $appearanceBefore -or (Read-Manual) -ne $expected) {
+                throw 'Theme-forced export changed live appearance or manual state.'
+            }
+        }
         Stop-App
         Start-Process -FilePath $AgentLatchPath -ArgumentList '--background' -WindowStyle Hidden
         # A synchronous capture waits for initialization without activating a window.

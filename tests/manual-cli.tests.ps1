@@ -14,7 +14,9 @@ $cases = @(
     '--keep-awake --hours invalid',
     '--keep-awake --indefinite --hours 8',
     '--keep-awake --stop-keep-awake',
-    '--export-ui-screenshots'
+    '--export-ui-screenshots',
+    '--export-ui-screenshots unused --capture-theme',
+    '--export-ui-screenshots unused --capture-theme invalid'
 )
 foreach ($arguments in $cases) {
     $process = Start-Process -FilePath $AgentLatchPath -ArgumentList $arguments -Wait -PassThru
@@ -22,4 +24,4 @@ foreach ($arguments in $cases) {
         throw "Expected validation exit 2 for '$arguments'; got $($process.ExitCode)."
     }
 }
-Write-Host 'Manual/session capture CLI validation tests passed (10 cases).'
+Write-Host ('Manual/session capture CLI validation tests passed ({0} cases).' -f $cases.Count)
