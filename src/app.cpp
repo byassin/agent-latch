@@ -597,6 +597,7 @@ bool AgentLatchApp::ProcessIpcMessage(const std::wstring& message) {
     if (fields[0] == L"CLAUDE2") {
         ClaudeEvent event;
         if (!ParseClaudeEventMessage(fields, &event)) { return false; }
+        settings_.MarkHookSeen(Provider::ClaudeCode);
         if (settings_.ProviderMode(Provider::ClaudeCode) == DetectionMode::Tasks) {
             bool previously_active = false;
             for (const auto& latch : latches_.Snapshot()) {

@@ -443,7 +443,6 @@ int HandleHookInvocation(Provider provider, std::wstring_view event_override) {
         if (ParseClaudeEvent(std::string_view(input.data(), input.size()), &event, event_override)) {
             event.owner = FindClaudeHookOwner();
             if (EnsureBackgroundInstance()) {
-                SendIpcMessage(L"SEEN\tclaude");
                 // One message applies the whole event/snapshot atomically. Never
                 // send separate remove/upsert messages with an unprotected gap.
                 SendIpcMessage(BuildClaudeEventMessage(event));
