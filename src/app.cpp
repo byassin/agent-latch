@@ -100,10 +100,12 @@ INT_PTR CALLBACK ManualHoursProcedure(HWND dialog, UINT message, WPARAM wparam, 
     if (message == WM_INITDIALOG) {
         controls = new DashboardControls;
         SetWindowLongPtrW(dialog, DWLP_USER, reinterpret_cast<LONG_PTR>(controls));
-        controls->InitializeDialog(dialog, GetDpiForWindow(dialog), static_cast<Appearance>(lparam));
+        controls->InitializeDialog(dialog, GetDpiForWindow(dialog), static_cast<Appearance>(lparam & 0xff));
         SetDlgItemInt(dialog, IDC_MANUAL_HOURS, 8, FALSE);
         SendDlgItemMessageW(dialog, IDC_MANUAL_HOURS, EM_SETLIMITTEXT, 3, 0);
-        return TRUE;
+        // Hidden self-tests must not let the dialog manager assign keyboard
+        // focus. Real, user-opened modal dialogs keep normal native focus.
+        return (lparam & 0x100) != 0 ? FALSE : TRUE;
     }
     if (controls != nullptr && (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN ||
         message == WM_CTLCOLOREDIT || message == WM_CTLCOLORDLG)) {
@@ -210,7 +212,7 @@ std::wstring DetectorLatchLabel(const DetectionResult& result, DetectionMode mod
 bool RunManualHoursDialogTests() {
     for (Appearance appearance : {Appearance::Light, Appearance::Dark}) {
         HWND dialog = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_MANUAL_HOURS),
-            nullptr, ManualHoursProcedure, static_cast<LPARAM>(appearance));
+            nullptr, ManualHoursProcedure, static_cast<LPARAM>(appearance) | 0x100);
         if (dialog == nullptr) { return false; }
         const bool hidden = !IsWindowVisible(dialog);
         const bool initial = GetDlgItemInt(dialog, IDC_MANUAL_HOURS, nullptr, FALSE) == 8;
