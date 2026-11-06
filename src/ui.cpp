@@ -20,7 +20,6 @@ constexpr int kStatusTitle = 40, kStatusDetail = 41, kFooter = 12;
 constexpr int kManualGroup = 69, kManualStatus = 71, kManualHint = 72;
 constexpr int kManualStart = 73, kManualStop = 74;
 constexpr int kManualDuration = 75, kManualHours = 76, kManualHoursLabel = 77;
-constexpr int kActivityDetails = 93, kActivityHint = 94;
 constexpr int kReasonsTitle = 90, kReasonsCount = 91, kReasons = 92;
 constexpr int kEmptyTitle = 95, kEmptyHint = 96;
 constexpr int kAgentsTitle = 100, kAgentsHint = 101;
@@ -149,8 +148,8 @@ void DashboardRenderer::Initialize(UINT dpi) {
     brand_icon_ = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_AGENTLATCH),
         IMAGE_ICON, Scale(32), Scale(32), LR_DEFAULTCOLOR));
 }
-SIZE DashboardRenderer::PreferredClientSize() const { return {Scale(680), Scale(620)}; }
-SIZE DashboardRenderer::MinimumClientSize() const { return {Scale(600), Scale(560)}; }
+SIZE DashboardRenderer::PreferredClientSize() const { return {Scale(680), Scale(520)}; }
+SIZE DashboardRenderer::MinimumClientSize() const { return {Scale(600), Scale(460)}; }
 void DashboardRenderer::Paint(HDC target, const RECT& client, const DashboardState& state) {
     const auto palette = ResolveDashboardPalette(state.settings.appearance, WindowsHighContrast());
     HBRUSH background = CreateSolidBrush(palette.background); FillRect(target, &client, background); DeleteObject(background);
@@ -214,10 +213,10 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     Text(L"Activity", kReasonsTitle, overview);
     HWND count = Text(L"", kReasonsCount, overview);
     SetWindowLongPtrW(count, GWL_STYLE, GetWindowLongPtrW(count, GWL_STYLE) | SS_RIGHT);
-    reasons_ = Add(WC_LISTVIEWW, L"Active protection reasons", WS_TABSTOP | WS_BORDER | LVS_REPORT |
-        LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS, kReasons, overview);
+    reasons_ = Add(WC_LISTVIEWW, L"Live agent activity, read only", LVS_REPORT |
+        LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS, kReasons, overview);
     if (reasons_ == nullptr) { return false; }
-    ListView_SetExtendedListViewStyle(reasons_, LVS_EX_DOUBLEBUFFER | LVS_EX_FULLROWSELECT | LVS_EX_LABELTIP);
+    ListView_SetExtendedListViewStyle(reasons_, LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
     for (const auto* label : {L"Agent or source", L"Signal", L"Status"}) {
         LVCOLUMNW column{}; column.mask = LVCF_TEXT | LVCF_WIDTH; column.cx = Scale(160);
         column.pszText = const_cast<wchar_t*>(label);
@@ -225,10 +224,6 @@ bool DashboardControls::Initialize(HWND parent, UINT dpi) {
     }
     Text(L"No active agents", kEmptyTitle, overview);
     Text(L"New work appears here automatically.", kEmptyHint, overview);
-    Text(L"Activity details", kActivityHint, overview);
-    Add(L"EDIT", L"Select an activity row above to see its signal and release status.",
-        WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-        kActivityDetails, overview);
     // This frame and its fields are siblings. Clip the frame's real paint DC
     // against fields above it so a late group repaint cannot erase them.
     Add(L"BUTTON", L"Manual override", BS_GROUPBOX | WS_CLIPSIBLINGS, kManualGroup, overview);
@@ -406,10 +401,8 @@ void DashboardControls::Layout() {
     Place(kReasonsTitle, left, top, width - Scale(140), Scale(24));
     Place(kReasonsCount, right - Scale(140), top + Scale(2), Scale(140), Scale(22));
     const int list_top = top + Scale(32), manual_top = bottom - Scale(116);
-    const int details_top = manual_top - Scale(100), list_bottom = details_top - Scale(10);
+    const int list_bottom = manual_top - Scale(14);
     Place(kReasons, left, list_top, width, list_bottom - list_top);
-    Place(kActivityHint, left, details_top, width, Scale(20));
-    Place(kActivityDetails, left, details_top + Scale(23), width, Scale(63));
     const int empty_top = list_top + std::max(Scale(26), (list_bottom - list_top) / 2 - Scale(15));
     Place(kEmptyTitle, left + Scale(24), empty_top, width - Scale(48), Scale(22));
     Place(kEmptyHint, left + Scale(24), empty_top + Scale(26), width - Scale(48), Scale(20));
@@ -527,10 +520,6 @@ void DashboardControls::Update(const DashboardState& state) {
     UpdateReasonRows(); LayoutReasonColumns(); ApplyVisibility();
 }
 void DashboardControls::UpdateReasonRows() {
-    updating_rows_ = true;
-    std::wstring selected;
-    const int selection = ListView_GetNextItem(reasons_, -1, LVNI_SELECTED);
-    if (selection >= 0 && static_cast<std::size_t>(selection) < row_ids_.size()) { selected = row_ids_[selection]; }
     std::vector<std::wstring> ids;
     for (const auto& latch : activity_) { ids.push_back(latch.id); }
     const bool changed = ids != row_ids_;
@@ -548,70 +537,26 @@ void DashboardControls::UpdateReasonRows() {
             SetCell(reasons_, row, 0, latch.label);
         }
         SetCell(reasons_, row, 1, Signal(latch)); SetCell(reasons_, row, 2, LatchSecondaryText(latch, state_.now));
-        if (changed && !selected.empty() && selected == latch.id) {
-            ListView_SetItemState(reasons_, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-        }
     }
     row_ids_ = std::move(ids);
     if (changed && !activity_.empty()) { ListView_EnsureVisible(reasons_, std::min(first, static_cast<int>(activity_.size()) - 1), FALSE); }
     if (visible) { SendMessageW(reasons_, WM_SETREDRAW, TRUE, 0); }
     InvalidateRect(reasons_, nullptr, FALSE);
     TextValue(kReasonsCount, std::to_wstring(activity_.size()) + (activity_.size() == 1 ? L" source" : L" sources"));
-    updating_rows_ = false;
-    UpdateActivityDetails();
-}
-
-void DashboardControls::UpdateActivityDetails() {
-    if (updating_rows_) { return; }
-    const int selected = ListView_GetNextItem(reasons_, -1, LVNI_SELECTED);
-    if (selected < 0 || static_cast<std::size_t>(selected) >= activity_.size()) {
-        TextValue(kActivityDetails, activity_.empty() ? L"No agent activity. Manual override is controlled separately below." :
-            L"Select an activity row above to see its signal and release status.");
-        return;
-    }
-    const auto& latch = activity_[selected];
-    std::wstring text = latch.label + L" — " + LatchSecondaryText(latch, state_.now) + L"\r\n";
-    text += std::wstring(ProviderName(latch.provider)) + L" · " + Signal(latch) + L" · " +
-        std::to_wstring(latch.instance_count) + (latch.instance_count == 1 ? L" instance" : L" instances");
-    if (!latch.detail.empty()) { text += L"\r\n" + latch.detail; }
-    text += latch.in_grace_period ? L"\r\nProtection ends when this grace period expires, unless new activity arrives." :
-        L"\r\nThis is observed activity, not an estimate of task completion.";
-    TextValue(kActivityDetails, text);
 }
 
 bool DashboardControls::HandleNotify(const NMHDR* notification, LRESULT* result) {
     if (result != nullptr) { *result = 0; }
     if (notification != nullptr && notification->hwndFrom == reasons_ &&
-        notification->code == NM_CUSTOMDRAW && palette_.dark && result != nullptr) {
-        auto* draw = reinterpret_cast<const NMLVCUSTOMDRAW*>(notification);
-        if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
-            *result = CDRF_NOTIFYITEMDRAW; return true;
-        }
-        const int row = static_cast<int>(draw->nmcd.dwItemSpec);
-        if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT &&
-            (ListView_GetItemState(reasons_, row, LVIS_SELECTED) & LVIS_SELECTED)) {
-            RECT bounds{}; ListView_GetItemRect(reasons_, row, &bounds, LVIR_BOUNDS);
-            HBRUSH brush = CreateSolidBrush(palette_.selected);
-            FillRect(draw->nmcd.hdc, &bounds, brush); DeleteObject(brush);
-            HGDIOBJ old = SelectObject(draw->nmcd.hdc, body_font_);
-            SetTextColor(draw->nmcd.hdc, palette_.text); SetBkMode(draw->nmcd.hdc, TRANSPARENT);
-            for (int column = 0; column < 3; ++column) {
-                wchar_t text[1024]{}; ListView_GetItemText(reasons_, row, column, text, 1024);
-                RECT cell{}; ListView_GetSubItemRect(reasons_, row, column, LVIR_LABEL, &cell);
-                cell.left += Scale(4); cell.right -= Scale(4);
-                DrawTextW(draw->nmcd.hdc, text, -1, &cell,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-            }
-            if (GetFocus() == reasons_) { DrawFocusRect(draw->nmcd.hdc, &bounds); }
-            SelectObject(draw->nmcd.hdc, old);
-            *result = CDRF_SKIPDEFAULT; return true;
+        notification->code == LVN_ITEMCHANGING && result != nullptr) {
+        const auto* item = reinterpret_cast<const NMLISTVIEW*>(notification);
+        // Also reject accessibility/programmatic selection, not only clicks.
+        if ((item->uChanged & LVIF_STATE) && (item->uNewState & (LVIS_SELECTED | LVIS_FOCUSED))) {
+            *result = TRUE; return true;
         }
     }
     if (notification != nullptr && notification->hwndFrom == tabs_ && notification->code == TCN_SELCHANGE) {
         SelectPage(static_cast<DashboardPage>(TabCtrl_GetCurSel(tabs_))); return true;
-    }
-    if (notification != nullptr && notification->hwndFrom == reasons_ && notification->code == LVN_ITEMCHANGED) {
-        UpdateActivityDetails(); return true;
     }
     return false;
 }

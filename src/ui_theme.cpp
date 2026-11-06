@@ -129,7 +129,8 @@ void DashboardControls::PaintDarkControl(HWND window, HDC dc) const {
 void DashboardControls::PaintDarkScrollbars(HWND window, HDC dc) const {
     RECT client{}; GetClientRect(window, &client);
     RECT outer{}; GetWindowRect(window, &outer);
-    RECT border{0, 0, outer.right - outer.left, outer.bottom - outer.top}; Border(dc, border, palette_.border);
+    RECT border{0, 0, outer.right - outer.left, outer.bottom - outer.top};
+    if (GetWindowLongPtrW(window, GWL_STYLE) & WS_BORDER) { Border(dc, border, palette_.border); }
     if (!(GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL)) { return; }
     SCROLLBARINFO info{}; info.cbSize = sizeof(info);
     if (!GetScrollBarInfo(window, OBJID_VSCROLL, &info)) { return; }
@@ -150,6 +151,10 @@ void DashboardControls::PaintDarkScrollbars(HWND window, HDC dc) const {
 LRESULT CALLBACK DashboardControls::ThemeProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
                                                   UINT_PTR, DWORD_PTR reference) {
     auto* controls = reinterpret_cast<DashboardControls*>(reference);
+    if (window == controls->reasons_ && (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK ||
+        message == WM_RBUTTONDOWN || message == WM_RBUTTONDBLCLK)) {
+        return 0; // Read-only status, not an interactive selection box. Scrolling is still native.
+    }
     if (message == WM_MOUSEMOVE) {
         SetPropW(window, L"AgentLatch.Hot", reinterpret_cast<HANDLE>(1));
         TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, window, 0}; TrackMouseEvent(&tracking);

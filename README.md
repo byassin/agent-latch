@@ -17,11 +17,11 @@ AgentLatch is a lightweight, open-source Windows tray app that prevents idle sle
 
 AgentLatch has three tabs, with protection status always visible:
 
-- **Overview:** select an activity row to see its signal, status and available details. The native table supports keyboard navigation and scrolling. Manual protection has a visible duration selector and Start/Apply/Stop controls in its own separate group.
+- **Overview:** a read-only live activity list shows each source, signal and status. Rows are not selectable and there is no details pane. Manual protection has a visible duration selector and Start/Apply/Stop controls in its own separate group.
 - **Agents:** select **Tasks only**, **While open**, or **Off** explicitly for each provider. These correspond to Tasks, Open, and Off mode in the technical documentation.
 - **Settings:** choose screen behavior, launch at sign-in, and notifications; open diagnostics or repair integrations when needed.
 
-AgentLatch 0.5 uses a Windows-owned resizable title bar and native controls, without a duplicate More menu or custom row paging. In **0.5.1**, Manual override is configured directly on Overview and the activity table has a useful details pane. Its preferred client is 680 × 620 logical pixels. **Settings → Appearance** offers System, Light and Dark without changing Windows' theme; high contrast takes priority. Use **Tab / Shift+Tab** between controls and **Ctrl+Tab / Ctrl+Shift+Tab** between pages. Closing leaves monitoring in the tray; right-click the tray icon and choose **Exit** to quit. See the [interface guide](docs/INTERFACE.md) and [manual/details walkthrough](docs/UI-UPDATE.md).
+AgentLatch 0.5 uses a Windows-owned resizable title bar and native controls, without a duplicate More menu or custom row paging. In **0.5.1**, Manual override is configured directly on Overview and Activity is a read-only status list. Its preferred client is 680 × 520 logical pixels. **Settings → Appearance** offers System, Light and Dark without changing Windows' theme; high contrast takes priority. Use **Tab / Shift+Tab** between controls and **Ctrl+Tab / Ctrl+Shift+Tab** between pages. Closing leaves monitoring in the tray; right-click the tray icon and choose **Exit** to quit. See the [interface guide](docs/INTERFACE.md) and [manual/activity walkthrough](docs/UI-UPDATE.md).
 
 <details>
 <summary>Agents and Settings screenshots</summary>
@@ -145,9 +145,7 @@ The dashboard has three explicit system states:
 - **Sleep protection is on** (PROTECTED) — one or more latches are active and Windows accepted the system keep-awake request.
 - **Sleep protection needs attention** (ERROR) — work is active but Windows rejected the request; AgentLatch shows the error, alerts once, and retries every reconciliation cycle.
 
-Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes agent/custom sources, not task totals: one row can contain several concurrent tasks. The built-in manual override is shown only in its separate group, not duplicated in the activity list. Custom requests remain visible, including external leases using the `manual` source key. The native table exposes every row through scrolling; unchanged refreshes preserve selection and scroll position.
-
-Select a row to read/copy its signal, status, instance count and available metadata in **Activity details**. The pane refreshes as that source changes and clears when it finishes. Aggregated rows do not expose individual task names or chat contents.
+Lifecycle-hook rows show **Active** (or a concurrent active count). Their renewable safety timeout is not an estimate of task completion. A **Releasing in…** countdown describes detector or restart grace; manual timers show their actual time remaining. The activity count describes agent/custom sources, not task totals: one row can contain several concurrent tasks. The built-in manual override is shown only in its separate group, not duplicated in the activity list. Custom requests remain visible, including external leases using the `manual` source key. The read-only list exposes every row through scrolling; unchanged refreshes preserve scroll position. Clicking rows does not select them or open details.
 
 Use **Open diagnostic history** in the tray menu to inspect the bounded local event log. It contains timestamps, AgentLatch version and process ID, active latch counts and provider names, Windows error codes, detector release reasons, restart-grace transitions, and manual-session starts/stops/expiry. It never contains prompts, responses, workspace paths, terminal output, or conversation content. The current and previous log are each capped at 512 KiB.
 

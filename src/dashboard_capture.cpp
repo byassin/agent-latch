@@ -114,15 +114,7 @@ bool ExportDashboardScreenshots(const DashboardState& state, const std::wstring&
         nullptr, nullptr, window_class.hInstance, &context);
     if (window == nullptr) { return false; }
     bool success = context.controls.Initialize(window, dpi);
-    if (success) {
-        context.controls.Update(state);
-        // Select one real source in the hidden clone to illustrate its details.
-        // Neither selection nor page changes touch the visible dashboard.
-        HWND activity = GetDlgItem(window, 92);
-        if (ListView_GetItemCount(activity) > 0) {
-            ListView_SetItemState(activity, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-        }
-    }
+    if (success) { context.controls.Update(state); }
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);

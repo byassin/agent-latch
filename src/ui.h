@@ -107,7 +107,6 @@ private:
     void ApplyVisibility();
     void LayoutReasonColumns();
     void UpdateReasonRows();
-    void UpdateActivityDetails();
     void Place(int id, int x, int y, int width, int height);
     void PaintDarkControl(HWND window, HDC dc) const;
     void PaintDarkScrollbars(HWND window, HDC dc) const;
@@ -132,7 +131,6 @@ private:
     std::vector<Control> controls_;
     std::vector<Latch> activity_;
     std::vector<std::wstring> row_ids_;
-    bool updating_rows_{false};
     bool manual_validation_error_{false};
 };
 

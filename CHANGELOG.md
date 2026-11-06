@@ -8,8 +8,8 @@ All notable changes to AgentLatch will be documented here.
 
 - Fixed a native repaint bug that could leave Manual override completely blank: its sibling group frame now clips its paint DC against the labels, selector and buttons above it. A regression on an isolated, never-activated desktop fails without the fix and passes after it, including light/dark appearance, tab changes and container-only redraws.
 - Put manual override duration directly on Overview: until Windows restarts, hour presets, or 1–168 custom hours, with Start/Apply and Stop. Invalid input shows an inline explanation without changing protection. A draft duration survives monitoring refreshes.
-- Give activity selection a purpose: a read-only, selectable/copyable details pane shows the selected source's signal, status, instance count and available metadata. Completed sources clear their old details. Aggregated sources are not presented as individual task transcripts. Selected rows retain a readable dark highlight instead of flashing a bright Windows selection surface.
-- Increase the client to 680 × 620 logical pixels (600 × 560 minimum) to fit activity details and manual controls without overlap. Add hidden control hit-target, draft/validation and selection/detail regression checks across light/dark themes and five scaling levels.
+- Make Activity a read-only live status list, without selectable rows, selection highlights, a details pane or a selection-box border. Native scrolling still exposes every source. Clicking or requesting selection cannot change row state.
+- Keep the compact 680 × 520 logical-pixel client (600 × 460 minimum). Add hidden control hit-target, draft/validation and read-only-list regression checks across light/dark themes and five scaling levels.
 - Extend the isolated Codex scanner test with concurrent parent/background sessions, parent completion, discovery-cap overflow, final-worker release, resumption and process-generation reset. Production scanning rules are unchanged.
 
 ## [0.5.0] - 2026-11-05

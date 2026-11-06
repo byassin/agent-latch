@@ -14,6 +14,15 @@ namespace {
 constexpr int kReasons = 92, kManualStart = 73, kManualStop = 74;
 constexpr int kModeFirst = 300, kScreen = 400, kStartup = 401, kNotifications = 402;
 
+LRESULT CALLBACK FixtureProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* controls = reinterpret_cast<DashboardControls*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (controls != nullptr && message == WM_NOTIFY) {
+        LRESULT result = 0;
+        if (controls->HandleNotify(reinterpret_cast<const NMHDR*>(lparam), &result)) { return result; }
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
 bool TextFits(HWND window) {
     wchar_t label[512]{}; GetWindowTextW(window, label, static_cast<int>(std::size(label)));
     RECT bounds{}; GetClientRect(window, &bounds);
@@ -118,6 +127,9 @@ bool RepaintClippingContract() {
 
 bool RunDashboardContractTests(const std::wstring& output_directory) {
     if (!RepaintClippingContract()) { return false; }
+    WNDCLASSW fixture{}; fixture.lpfnWndProc = FixtureProcedure;
+    fixture.hInstance = GetModuleHandleW(nullptr); fixture.lpszClassName = L"AgentLatch.NativeFixture.v1";
+    if (!RegisterClassW(&fixture) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) { return false; }
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "Native UI check failed at line %d, dpi=%u\n", __LINE__, dpi); return false; } } while (false)
     for (Appearance appearance : {Appearance::Light, Appearance::Dark}) {
     for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
@@ -133,12 +145,13 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
         DestroyWindow(native_frame);
         // Client-only hosts make the test dimensions independent of the actual
         // monitor's non-client DPI. No window is shown or moved between screens.
-        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"AgentLatch native test",
+        HWND parent = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, fixture.lpszClassName, L"AgentLatch native test",
             WS_POPUP, 0, 0, preferred.cx, preferred.cy, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         CHECK(parent != nullptr);
         {
             DashboardControls controls;
             CHECK(controls.Initialize(parent, dpi));
+            SetWindowLongPtrW(parent, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&controls));
             CHECK(GetDlgItem(parent, 13) == nullptr && GetDlgItem(parent, 10) == nullptr && GetDlgItem(parent, 11) == nullptr);
             CHECK(TabCtrl_GetItemCount(controls.TabWindow()) == 3);
             CHECK((GetWindowLongPtrW(controls.TabWindow(), GWL_STYLE) & TCS_OWNERDRAWFIXED) == 0);
@@ -160,9 +173,10 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (LVS_OWNERDRAWFIXED | LVS_NOCOLUMNHEADER)) == 0);
             CHECK(Header_GetItemCount(ListView_GetHeader(reasons)) == 3);
             HWND duration = GetDlgItem(parent, 75), custom_hours = GetDlgItem(parent, 76);
-            CHECK(duration != nullptr && custom_hours != nullptr && GetDlgItem(parent, 93) != nullptr);
+            CHECK(duration != nullptr && custom_hours != nullptr && GetDlgItem(parent, 93) == nullptr);
+            CHECK(GetDlgItem(parent, 94) == nullptr);
             CHECK(SendMessageW(duration, CB_GETCOUNT, 0, 0) == 8);
-            CHECK((GetWindowLongPtrW(GetDlgItem(parent, 93), GWL_STYLE) & ES_READONLY) != 0);
+            CHECK((GetWindowLongPtrW(reasons, GWL_STYLE) & (WS_TABSTOP | LVS_SHOWSELALWAYS | WS_BORDER)) == 0);
             constexpr unsigned int expected_hours[] = {0, 1, 2, 4, 8, 12, 24};
             for (int preset = 0; preset < 7; ++preset) {
                 SendMessageW(duration, CB_SETCURSEL, preset, 0);
@@ -242,33 +256,16 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                 ListView_EnsureVisible(reasons, 12, FALSE);
                 const int top = ListView_GetTopIndex(reasons);
                 controls.Update(state);
-                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == 12 && ListView_GetTopIndex(reasons) == top);
-                NMHDR selected{reasons, kReasons, LVN_ITEMCHANGED};
-                CHECK(controls.HandleNotify(&selected));
-                if (appearance == Appearance::Dark && !WindowsHighContrast()) {
-                    NMLVCUSTOMDRAW drawing{};
-                    drawing.nmcd.hdr = {reasons, kReasons, NM_CUSTOMDRAW};
-                    drawing.nmcd.dwDrawStage = CDDS_PREPAINT;
-                    LRESULT result = 0;
-                    CHECK(controls.HandleNotify(&drawing.nmcd.hdr, &result) && result == CDRF_NOTIFYITEMDRAW);
-                    drawing.nmcd.dwDrawStage = CDDS_ITEMPREPAINT;
-                    drawing.nmcd.dwItemSpec = 12;
-                    drawing.nmcd.hdc = CreateCompatibleDC(nullptr);
-                    CHECK(controls.HandleNotify(&drawing.nmcd.hdr, &result) && result == CDRF_SKIPDEFAULT);
-                    DeleteDC(drawing.nmcd.hdc);
-                    CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == 12);
-                }
-                wchar_t details[2048]{}; GetWindowTextW(GetDlgItem(parent, 93), details, 2048);
-                CHECK(std::wstring(details).find(L"Agent task 12") != std::wstring::npos);
-                CHECK(std::wstring(details).find(L"Lifecycle event") != std::wstring::npos);
-                // Metadata updates keep the selection and refresh its details.
-                state.latches[12].detail = L"Background worker is active";
-                controls.Update(state);
-                GetWindowTextW(GetDlgItem(parent, 93), details, 2048);
-                CHECK(std::wstring(details).find(L"Background worker is active") != std::wstring::npos);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == -1 && ListView_GetTopIndex(reasons) == top);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_FOCUSED) == -1);
+                // Synthetic input targets only this hidden fixture, not the desktop.
+                SendMessageW(reasons, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scale(20), scale(35)));
+                SendMessageW(reasons, WM_LBUTTONUP, 0, MAKELPARAM(scale(20), scale(35)));
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_SELECTED) == -1);
+                CHECK(ListView_GetNextItem(reasons, -1, LVNI_FOCUSED) == -1);
                 CHECK(SendMessageW(duration, CB_GETCURSEL, 0, 0) == 2);
                 // Hidden fixture hit-tests ensure siblings do not intercept controls.
-                for (int id : {kManualStart, kManualStop, 75, 76, 92, 93}) {
+                for (int id : {kManualStart, kManualStop, 75, 76, 92}) {
                     HWND child = GetDlgItem(parent, id); RECT rect{}; GetWindowRect(child, &rect);
                     if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) { continue; }
                     MapWindowPoints(nullptr, parent, reinterpret_cast<POINT*>(&rect), 2);
@@ -276,11 +273,6 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
                     CHECK(ChildWindowFromPointEx(parent, center, CWP_SKIPINVISIBLE) == child);
                 }
             }
-            // Removing a selected row clears its details; no stale task remains.
-            state.latches.erase(state.latches.begin() + 12);
-            controls.Update(state);
-            wchar_t retired[2048]{}; GetWindowTextW(GetDlgItem(parent, 93), retired, 2048);
-            CHECK(std::wstring(retired).find(L"Agent task 12") == std::wstring::npos);
             for (int id : {kScreen, kStartup, kNotifications}) {
                 HWND checkbox = GetDlgItem(parent, id);
                 CHECK((GetWindowLongPtrW(checkbox, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX);
@@ -291,8 +283,6 @@ bool RunDashboardContractTests(const std::wstring& output_directory) {
             }
             state.manual_active = false; state.active = false; state.latches.clear(); controls.Update(state);
             CHECK(ListView_GetItemCount(reasons) == 0 && !IsWindowEnabled(GetDlgItem(parent, kManualStop)));
-            wchar_t cleared_details[512]{}; GetWindowTextW(GetDlgItem(parent, 93), cleared_details, 512);
-            CHECK(std::wstring(cleared_details).find(L"Agent task 12") == std::wstring::npos);
             CHECK((GetWindowLongPtrW(GetDlgItem(parent, 95), GWL_STYLE) & WS_VISIBLE) != 0);
             state.active = state.manual_active = true;
             Latch manual; manual.id = L"manual:keep-awake"; manual.kind = LatchKind::Manual;

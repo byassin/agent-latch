@@ -1,6 +1,6 @@
 # Interface guide
 
-This guide describes **0.5.1**, with direct manual-duration controls and selected-activity details. See the [manual/details walkthrough](UI-UPDATE.md).
+This guide describes **0.5.1**, with direct manual-duration controls and a read-only live activity list. See the [manual/activity walkthrough](UI-UPDATE.md).
 
 AgentLatch 0.5 uses Windows common controls: standard tabs, buttons, dropdowns, checkboxes, an activity table and a status bar. It remains a small Win32 tray utility, without a web runtime or an added UI framework. The images below render actual release controls off-screen with illustrative test activity.
 
@@ -14,9 +14,7 @@ In the bottom **Manual override** group, choose **Until Windows restarts**, an h
 
 Cancel, Escape, or the custom-hours dialog's close button leaves the existing session unchanged.
 
-The activity table has named **Agent or source**, **Signal** and **Status** columns. It displays every current source using normal native selection, keyboard navigation and vertical scrolling. There are no custom page arrows or five-row limit. Column widths track the window size without horizontal scrolling, and unchanged refreshes preserve the current selection and scroll position. Long names use the native list's ellipsis/label-tip behavior rather than overlapping adjacent columns.
-
-Selecting a row updates **Activity details** immediately. The read-only text pane supports normal selection/copying and shows that source's label, signal, status, instance count and available metadata. Removed sources clear their details. An aggregated source does not provide individual task names or transcripts; AgentLatch never invents missing details. Dark selection uses a consistent dark highlight while native keyboard/accessibility behavior remains intact.
+The read-only activity list has named **Agent or source**, **Signal** and **Status** columns. It displays every current source using native vertical scrolling, without selectable rows, a selection-box border or a details pane. Clicking does not select/highlight a row, and Tab skips the list. Use its mouse wheel or scrollbar to see additional rows. There are no custom page arrows or five-row limit. Column widths track the window size without horizontal scrolling, and unchanged refreshes preserve scroll position. Long names use native ellipsis/label tips rather than overlapping adjacent columns.
 
 The source count is the number of agent/custom activity rows, not a total task count. One Codex source can contain multiple tasks. The built-in manual session appears only in its separate native group, so it is not duplicated or counted as an agent. Custom external requests remain visible even when their source key is `manual`. An empty-state message explains when manual override alone is keeping the PC awake. The Stop button remains in place but is disabled when manual override is off. Activity/restart grace is labeled as grace, not running tasks or predicted completion times.
 
@@ -53,15 +51,15 @@ Each preference uses a standard Windows checkbox with a clear label and explanat
 
 Use Tab/Shift+Tab between controls, Ctrl+Tab/Ctrl+Shift+Tab between pages, arrow keys on tabs/dropdowns/lists, Space for checkboxes, and Enter/Space for focused buttons. Closing the main window keeps monitoring in the tray; right-click the tray icon and choose **Exit** to end the process/power request, while preserving a manual choice only for later launch within the same Windows session.
 
-The preferred client is 680 × 620 logical pixels, with a 600 × 560 minimum. Resize or maximize it using the native Windows frame. The activity list gains a normal vertical scrollbar when needed; the whole window does not become a scrolling page. Keyboard focus and hover/press/disabled states remain visible in both themes.
+The preferred client is 680 × 520 logical pixels, with a 600 × 460 minimum. Resize or maximize it using the native Windows frame. The activity list gains a normal vertical scrollbar when needed; the whole window does not become a scrolling page. Keyboard focus and hover/press/disabled states remain visible on interactive controls in both themes.
 
 ## Capture provenance and validation
 
-The documentation images are off-screen native-control renders with illustrative test activity. They use the same renderer and child windows as the visible UI; their sources are examples, not evidence of completed provider tasks. The `--export-ui-screenshots` command can separately export current live state. Its hidden clone selects the first available source to demonstrate details without changing the visible selection.
+The documentation images are off-screen native-control renders with illustrative test activity. They use the same renderer and child windows as the visible UI; their sources are examples, not evidence of completed provider tasks. The `--export-ui-screenshots` command can separately export current live state without changing the visible page or settings.
 
 Export creates only a hidden `WS_EX_NOACTIVATE` capture window and never changes the visible page, input focus, mouse, keyboard, or system power plan. Output stays local until a user explicitly publishes it. Review any custom external-lease labels before sharing.
 
-Automated tests cover page visibility, mode mapping, native control/window styles, every activity row, selection/scroll preservation, checkbox state, no More/duplicate header, three client sizes and no horizontal scrolling. Both themes exercise layout/font scales at 96/120/144/168/192 DPI, creating 180 timed, indefinite, idle, error, long-list and mixed-source fixtures. Tests do not move visible windows between monitors or qualify real DWM rendering on every monitor. System-owned menus and message boxes retain Windows' own appearance.
+Automated tests cover page visibility, mode mapping, native control/window styles, every activity row, rejected row selection, scroll preservation, checkbox state, no More/duplicate header, three client sizes and no horizontal scrolling. Both themes exercise layout/font scales at 96/120/144/168/192 DPI, creating 180 timed, indefinite, idle, error, long-list and mixed-source fixtures. Tests do not move visible windows between monitors or qualify real DWM rendering on every monitor. System-owned menus and message boxes retain Windows' own appearance.
 
 Light controls use Windows drawing; dark controls keep native behavior while painting a consistent dark palette, including table headers and scrollbar surfaces. Labels match the pane background and dropdowns retain explicit accessible names. Hidden tests cover selected themes/modes, persistence, text contrast, full corner painting, native frame styles and dark custom-hours validation. The exporter paints panes back-to-front and can restore omitted hidden dropdown text from its actual value.
 
