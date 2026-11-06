@@ -409,10 +409,10 @@ void DashboardControls::Layout() {
     Place(kManualGroup, left, manual_top, width, Scale(116));
     Place(kManualStatus, left + Scale(16), manual_top + Scale(23), width - Scale(32), Scale(23));
     const bool custom = SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7;
-    Place(kManualDuration, left + Scale(16), manual_top + Scale(51), width - Scale(custom ? 300 : 198), Scale(240));
-    Place(kManualHours, right - Scale(276), manual_top + Scale(52), Scale(43), Scale(26));
-    Place(kManualHoursLabel, right - Scale(227), manual_top + Scale(55), Scale(38), Scale(22));
-    Place(kManualStart, right - Scale(174), manual_top + Scale(50), Scale(86), Scale(30));
+    Place(kManualDuration, left + Scale(16), manual_top + Scale(51), width - Scale(custom ? 340 : 238), Scale(240));
+    Place(kManualHours, right - Scale(316), manual_top + Scale(52), Scale(43), Scale(26));
+    Place(kManualHoursLabel, right - Scale(267), manual_top + Scale(55), Scale(38), Scale(22));
+    Place(kManualStart, right - Scale(214), manual_top + Scale(50), Scale(126), Scale(30));
     Place(kManualStop, right - Scale(78), manual_top + Scale(50), Scale(62), Scale(30));
     Place(kManualHint, left + Scale(16), manual_top + Scale(87), width - Scale(32), Scale(22));
     Place(kAgentsTitle, left, top, width, Scale(24));
@@ -467,6 +467,7 @@ void DashboardControls::Update(const DashboardState& state) {
         (!state_.manual_active || state.manual_deadline != state_.manual_deadline);
     state_ = state; state_.page = page_;
     if (manual_changed) {
+        manual_syncing_ = true;
         const ULONGLONG remaining = state_.manual_deadline > state_.now ? state_.manual_deadline - state_.now : 0;
         const unsigned int hours = state_.manual_deadline == 0 ? 0 :
             static_cast<unsigned int>(std::min<ULONGLONG>(168, std::max<ULONGLONG>(1, (remaining + 3599999) / 3600000)));
@@ -476,8 +477,14 @@ void DashboardControls::Update(const DashboardState& state) {
         SendMessageW(Find(kManualDuration), CB_SETCURSEL, selection, 0);
         if (hours != 0) { TextValue(kManualHours, std::to_wstring(hours)); }
         EnableWindow(Find(kManualHours), selection == 7);
-        manual_validation_error_ = false;
+        manual_applied_hours_ = hours;
+        manual_feedback_ = manual_pending_;
+        manual_pending_ = ManualFeedback::None;
+        manual_syncing_ = false;
         Layout();
+    }
+    if (!state_.manual_active) {
+        manual_feedback_ = manual_pending_ = ManualFeedback::None;
     }
     const auto wanted = ResolveDashboardPalette(state_.settings.appearance, WindowsHighContrast());
     if (old_appearance != state_.settings.appearance || wanted.dark != palette_.dark) { RefreshTheme(); }
@@ -496,13 +503,7 @@ void DashboardControls::Update(const DashboardState& state) {
         if (!state_.display_request_accepted) { detail += L" Display request failed."; }
     } else { detail = L"Normal sleep settings apply. Agent monitoring is on."; }
     TextValue(kStatusDetail, detail);
-    TextValue(kManualStatus, !state_.manual_active ? L"Off" : state_.manual_deadline == 0 ?
-        L"Until Windows restarts" : FormatCountdown(state_.manual_deadline, state_.now));
-    TextValue(kManualStart, state_.manual_active ? L"Apply" : L"Start");
-    if (!manual_validation_error_) {
-        TextValue(kManualHint, L"Independent of agents. Resets when Windows restarts.");
-    }
-    EnableWindow(Find(kManualStop), state_.manual_active);
+    UpdateManualControls();
     TextValue(kEmptyHint, state_.manual_active ? L"Manual override is keeping your PC awake." : L"New work appears here automatically.");
     for (std::size_t index = 0; index < kProviders.size(); ++index) {
         HWND combo = Find(kModeFirst + static_cast<int>(index));
@@ -573,22 +574,15 @@ UiAction DashboardControls::ActionForCommand(WPARAM command) const {
         default: return UiAction::None;
     }
 }
-bool DashboardControls::ReadManualCommand(WPARAM command, unsigned int* hours) {
-    const int id = LOWORD(command);
-    if (id == kManualDuration && HIWORD(command) == CBN_SELCHANGE) {
-        EnableWindow(Find(kManualHours), SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7);
-        manual_validation_error_ = false;
-        TextValue(kManualHint, L"Choose a duration, then Start or Apply. Agent tracking stays on.");
-        Layout();
-        ApplyVisibility();
-        return false;
-    }
-    if (id != kManualStart || HIWORD(command) != BN_CLICKED || hours == nullptr) { return false; }
+bool DashboardControls::ReadManualDuration(unsigned int* hours) const {
+    if (hours == nullptr) { return false; }
     constexpr unsigned int presets[] = {0, 1, 2, 4, 8, 12, 24};
     const auto selection = SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0);
     if (selection >= 0 && selection < 7) { *hours = presets[selection]; }
     else if (selection == 7) {
-        wchar_t text[16]{}; GetWindowTextW(Find(kManualHours), text, 16);
+        wchar_t text[4]{};
+        if (GetWindowTextLengthW(Find(kManualHours)) > 3) { return false; }
+        GetWindowTextW(Find(kManualHours), text, 4);
         unsigned int value = 0;
         bool valid = text[0] != L'\0';
         for (const wchar_t c : std::wstring(text)) {
@@ -596,13 +590,49 @@ bool DashboardControls::ReadManualCommand(WPARAM command, unsigned int* hours) {
             value = value * 10 + static_cast<unsigned int>(c - L'0');
         }
         if (!valid || value < 1 || value > 168) {
-            manual_validation_error_ = true;
-            TextValue(kManualHint, L"Enter a whole number from 1 to 168 hours, then Apply.");
             return false;
         }
         *hours = value;
     } else { return false; }
-    manual_validation_error_ = false;
+    return true;
+}
+
+void DashboardControls::UpdateManualControls() {
+    unsigned int hours = 0;
+    const bool valid = ReadManualDuration(&hours);
+    const bool changed = valid && hours != manual_applied_hours_;
+    TextValue(kManualStatus, !state_.manual_active ? L"Off" : L"On · " +
+        (state_.manual_deadline == 0 ? std::wstring(L"Until Windows restarts") : FormatCountdown(state_.manual_deadline, state_.now)));
+    TextValue(kManualStart, state_.manual_active ? L"Update duration" : L"Start");
+    EnableWindow(Find(kManualStart), valid && (!state_.manual_active || changed));
+    EnableWindow(Find(kManualStop), state_.manual_active);
+    std::wstring hint;
+    if (!valid) { hint = L"Enter a whole number from 1 to 168 hours."; }
+    else if (!state_.manual_active) { hint = L"Choose a duration, then Start. Resets when Windows restarts."; }
+    else if (changed) { hint = L"Update duration replaces this session starting now. Stop stays available."; }
+    else if (manual_feedback_ == ManualFeedback::Started) { hint = L"Started. Manual override is on; no further action is needed."; }
+    else if (manual_feedback_ == ManualFeedback::Updated) { hint = L"Duration updated. Manual override is on."; }
+    else { hint = L"Manual override is on. Change the duration only if needed."; }
+    TextValue(kManualHint, hint);
+}
+
+bool DashboardControls::ReadManualCommand(WPARAM command, unsigned int* hours) {
+    if (manual_syncing_) { return false; }
+    const int id = LOWORD(command);
+    if ((id == kManualDuration && HIWORD(command) == CBN_SELCHANGE) ||
+        (id == kManualHours && HIWORD(command) == EN_CHANGE)) {
+        manual_feedback_ = manual_pending_ = ManualFeedback::None;
+        EnableWindow(Find(kManualHours), SendMessageW(Find(kManualDuration), CB_GETCURSEL, 0, 0) == 7);
+        UpdateManualControls(); Layout(); ApplyVisibility();
+        return false;
+    }
+    if (id != kManualStart || HIWORD(command) != BN_CLICKED || !ReadManualDuration(hours)) {
+        return false;
+    }
+    // Guard the command too: a disabled/stale/programmatic repeat must not
+    // silently restart a running timer or reapply an unlimited session.
+    if (state_.manual_active && *hours == manual_applied_hours_) { return false; }
+    manual_pending_ = state_.manual_active ? ManualFeedback::Updated : ManualFeedback::Started;
     return true;
 }
 bool DashboardControls::ReadProviderChange(WPARAM command, Provider* provider, DetectionMode* mode) const {
